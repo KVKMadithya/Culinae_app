@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "313163204080",
+    "project_id": "culinae-28395",
+    "storage_bucket": "culinae-28395.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:313163204080:android:a4281156e22a2a7d834935",
+        "android_client_info": {
+          "package_name": "com.example.culinae"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBhcg2IHnQg4okUeiRwoHV1qTKZDJbwhuM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
