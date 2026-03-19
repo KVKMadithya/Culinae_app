@@ -3,6 +3,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 
+import 'map_tab.dart'; // <--- Make sure this matches your map file name!
+
 class OwnerOrdersTab extends StatefulWidget {
   const OwnerOrdersTab({super.key});
 
@@ -25,6 +27,20 @@ class _OwnerOrdersTabState extends State<OwnerOrdersTab> {
     }
   }
 
+  // --- NEW: Delete Order from Database ---
+  Future<void> _deleteOrder(String orderId) async {
+    try {
+      await FirebaseFirestore.instance.collection('orders').doc(orderId).delete();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Order cleared from history 🧹'), duration: Duration(seconds: 1)),
+        );
+      }
+    } catch (e) {
+      debugPrint("Error deleting order: $e");
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final myUid = FirebaseAuth.instance.currentUser?.uid;
@@ -40,7 +56,6 @@ class _OwnerOrdersTabState extends State<OwnerOrdersTab> {
       body: myUid == null
           ? const Center(child: Text("Please log in."))
           : StreamBuilder<QuerySnapshot>(
-        // NOTE: Removed .orderBy() to prevent invisible index crashes! We sort locally below.
         stream: FirebaseFirestore.instance
             .collection('orders')
             .where('storeId', isEqualTo: myUid)
@@ -89,15 +104,17 @@ class _OwnerOrdersTabState extends State<OwnerOrdersTab> {
                 timeFormatted = DateFormat('h:mm a').format(timestamp.toDate());
               }
 
-              // Card Colors based on the new extended status flow
               Color cardBorder = Colors.grey.shade300;
               if (status == 'pending') cardBorder = Colors.orangeAccent;
-              if (status == 'accepted') cardBorder = Colors.blueAccent; // Waiting for payment
-              if (status == 'paid') cardBorder = Colors.green; // Ready to cook!
+              if (status == 'accepted') cardBorder = Colors.blueAccent;
+              if (status == 'paid') cardBorder = Colors.green;
               if (status == 'rejected') cardBorder = Colors.redAccent;
               if (status == 'completed') cardBorder = Colors.grey;
 
-              return Card(
+              // NEW: Check if this order is allowed to be swiped away
+              final bool isDismissible = (status == 'completed' || status == 'rejected');
+
+              Widget orderCard = Card(
                 margin: const EdgeInsets.only(bottom: 16),
                 elevation: 2,
                 shape: RoundedRectangleBorder(
@@ -109,7 +126,6 @@ class _OwnerOrdersTabState extends State<OwnerOrdersTab> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Top Row: Customer & Time
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
@@ -119,7 +135,17 @@ class _OwnerOrdersTabState extends State<OwnerOrdersTab> {
                       ),
                       const Divider(),
 
-                      // The Items List
+                      // ---> MAP ROUTE BUTTON <---
+                      if (data['customerLocation'] != null)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 12.0),
+                          child: OutlinedButton.icon(
+                            icon: const Icon(Icons.map, color: Colors.blueAccent),
+                            label: const Text('View Delivery Route', style: TextStyle(color: Colors.blueAccent)),
+                            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => DeliveryRouteMap(customerLocation: data['customerLocation'] as GeoPoint))),
+                          ),
+                        ),
+
                       ...items.map((item) {
                         return Padding(
                           padding: const EdgeInsets.symmetric(vertical: 4.0),
@@ -135,7 +161,6 @@ class _OwnerOrdersTabState extends State<OwnerOrdersTab> {
 
                       const SizedBox(height: 16),
 
-                      // --- Dynamic Action Buttons based on the Extended Status Flow! ---
                       if (status == 'pending')
                         Row(
                           children: [
@@ -182,21 +207,46 @@ class _OwnerOrdersTabState extends State<OwnerOrdersTab> {
                         else if (status == 'completed')
                             Container(
                               width: double.infinity,
-                              padding: const EdgeInsets.all(8),
+                              padding: const EdgeInsets.all(12),
                               decoration: BoxDecoration(color: Colors.grey.shade200, borderRadius: BorderRadius.circular(8)),
-                              child: const Center(child: Text('Order Completed ✅', style: TextStyle(color: Colors.black54, fontWeight: FontWeight.bold))),
+                              child: const Center(child: Text('Order Completed ✅\n(Swipe left to clear)', textAlign: TextAlign.center, style: TextStyle(color: Colors.black54, fontWeight: FontWeight.bold))),
                             )
                           else if (status == 'rejected')
                               Container(
                                 width: double.infinity,
-                                padding: const EdgeInsets.all(8),
+                                padding: const EdgeInsets.all(12),
                                 decoration: BoxDecoration(color: Colors.red.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
-                                child: const Center(child: Text('Order Declined ❌', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold))),
+                                child: const Center(child: Text('Order Declined ❌\n(Swipe left to clear)', textAlign: TextAlign.center, style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold))),
                               )
                     ],
                   ),
                 ),
               );
+
+              // NEW: If it's dismissible, wrap it in a Dismissible widget!
+              if (isDismissible) {
+                return Dismissible(
+                  key: Key(orderDoc.id),
+                  direction: DismissDirection.endToStart, // Only allow swiping Right to Left
+                  background: Container(
+                    margin: const EdgeInsets.only(bottom: 16),
+                    alignment: Alignment.centerRight,
+                    padding: const EdgeInsets.only(right: 20),
+                    decoration: BoxDecoration(
+                      color: Colors.redAccent,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(Icons.delete_sweep, color: Colors.white, size: 32),
+                  ),
+                  onDismissed: (direction) {
+                    _deleteOrder(orderDoc.id); // Permanently delete it from Firebase
+                  },
+                  child: orderCard,
+                );
+              }
+
+              // If it's still pending or paid, return the normal un-swipeable card
+              return orderCard;
             },
           );
         },

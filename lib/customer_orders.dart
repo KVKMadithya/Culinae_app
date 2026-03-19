@@ -38,11 +38,9 @@ class _CustomerOrdersTabState extends State<CustomerOrdersTab> {
     if (uid == null || itemsToOrder.isEmpty) return;
 
     try {
-      // 1. Fetch the customer's name
       final userDoc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
       final customerName = userDoc.data()?['name'] ?? userDoc.data()?['username'] ?? 'Customer';
 
-      // 2. Group the cart items by Store ID
       Map<String, List<Map<String, dynamic>>> ordersByStore = {};
       for (var doc in itemsToOrder) {
         final item = doc.data() as Map<String, dynamic>;
@@ -53,7 +51,6 @@ class _CustomerOrdersTabState extends State<CustomerOrdersTab> {
         ordersByStore[storeId]!.add(item);
       }
 
-      // 3. Create a massive "Batch" to send orders and clear the cart simultaneously
       final batch = FirebaseFirestore.instance.batch();
 
       for (String storeId in ordersByStore.keys) {
@@ -63,12 +60,11 @@ class _CustomerOrdersTabState extends State<CustomerOrdersTab> {
           'customerName': customerName,
           'storeId': storeId,
           'items': ordersByStore[storeId],
-          'status': 'pending', // Starts as pending!
+          'status': 'pending',
           'timestamp': FieldValue.serverTimestamp(),
         });
       }
 
-      // Delete the ordered items from the Customer's Cart
       for (var doc in itemsToOrder) {
         batch.delete(doc.reference);
       }
@@ -88,22 +84,20 @@ class _CustomerOrdersTabState extends State<CustomerOrdersTab> {
 
   // --- Payment Simulation ---
   Future<void> _payForOrder(String orderId) async {
-    // Show a quick loading dialog to make the payment feel real
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) => const Center(child: CircularProgressIndicator(color: culinaeBrown)),
     );
 
-    await Future.delayed(const Duration(seconds: 2)); // Fake processing time
+    await Future.delayed(const Duration(seconds: 2));
 
-    // Update status to Paid in Firebase
     await FirebaseFirestore.instance.collection('orders').doc(orderId).update({
       'status': 'paid'
     });
 
     if (mounted) {
-      Navigator.pop(context); // Close loading dialog
+      Navigator.pop(context);
       ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Payment Successful! Meal is being prepared. 🍽️'), backgroundColor: Colors.green)
       );
@@ -115,22 +109,23 @@ class _CustomerOrdersTabState extends State<CustomerOrdersTab> {
     final uid = FirebaseAuth.instance.currentUser?.uid;
 
     if (uid == null) {
-      return const Scaffold(body: Center(child: Text("Please log in to view orders.")));
+      return const Scaffold(body: Center(child: Text("Please log in to view orders.", style: TextStyle(fontSize: 18))));
     }
 
     return DefaultTabController(
-      length: 2, // We now have TWO tabs: Cart and Active Orders!
+      length: 2,
       child: Scaffold(
         backgroundColor: Colors.grey.shade50,
         appBar: AppBar(
           backgroundColor: Colors.white,
           elevation: 0,
-          title: const Text('Your Orders 🛒', style: TextStyle(color: culinaeBrown, fontWeight: FontWeight.bold)),
+          title: const Text('Your Orders 🛒', style: TextStyle(color: culinaeBrown, fontWeight: FontWeight.bold, fontSize: 22)),
           centerTitle: true,
           bottom: const TabBar(
             labelColor: culinaeBrown,
             unselectedLabelColor: Colors.grey,
             indicatorColor: culinaeBrown,
+            labelStyle: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             tabs: [
               Tab(text: 'My Cart'),
               Tab(text: 'Track Orders'),
@@ -163,9 +158,9 @@ class _CustomerOrdersTabState extends State<CustomerOrdersTab> {
               children: [
                 Icon(Icons.shopping_cart_outlined, size: 80, color: Colors.grey.shade300),
                 const SizedBox(height: 16),
-                const Text('Your cart is empty!', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: culinaeBrown)),
+                const Text('Your cart is empty!', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: culinaeBrown)),
                 const SizedBox(height: 8),
-                const Text('Go to the feed and add some delicious food.', style: TextStyle(color: Colors.grey)),
+                const Text('Go to the feed and add some delicious food.', style: TextStyle(color: Colors.grey, fontSize: 16)),
               ],
             ),
           );
@@ -197,32 +192,32 @@ class _CustomerOrdersTabState extends State<CustomerOrdersTab> {
                           ClipRRect(
                             borderRadius: BorderRadius.circular(8),
                             child: item['imageUrl'] != ''
-                                ? Image.network(item['imageUrl'], width: 70, height: 70, fit: BoxFit.cover)
-                                : Container(width: 70, height: 70, color: Colors.grey, child: const Icon(Icons.fastfood, color: Colors.white)),
+                                ? Image.network(item['imageUrl'], width: 80, height: 80, fit: BoxFit.cover)
+                                : Container(width: 80, height: 80, color: Colors.grey, child: const Icon(Icons.fastfood, color: Colors.white, size: 30)),
                           ),
                           const SizedBox(width: 12),
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(item['storeName'] ?? 'Store', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: culinaeBrown)),
+                                Text(item['storeName'] ?? 'Store', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: culinaeBrown)),
                                 const SizedBox(height: 4),
-                                Text(item['caption'] ?? 'Dish', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.black87)),
+                                Text(item['caption'] ?? 'Dish', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.black87, fontSize: 16)),
                                 const SizedBox(height: 4),
-                                Text(price, style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                                Text(price, style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 16)),
                               ],
                             ),
                           ),
                           Column(
                             children: [
                               IconButton(
-                                icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                                icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 28),
                                 onPressed: () => _removeFromCart(itemId),
                               ),
                               ElevatedButton(
-                                onPressed: () => _placeOrder([cartItems[index]]), // Order ONE by one!
-                                style: ElevatedButton.styleFrom(backgroundColor: culinaeBrown, minimumSize: const Size(60, 30), padding: const EdgeInsets.symmetric(horizontal: 12)),
-                                child: const Text('Order', style: TextStyle(color: Colors.white, fontSize: 12)),
+                                onPressed: () => _placeOrder([cartItems[index]]),
+                                style: ElevatedButton.styleFrom(backgroundColor: culinaeBrown, minimumSize: const Size(70, 36), padding: const EdgeInsets.symmetric(horizontal: 16)),
+                                child: const Text('Order', style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
                               )
                             ],
                           )
@@ -239,11 +234,11 @@ class _CustomerOrdersTabState extends State<CustomerOrdersTab> {
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(color: Colors.white, boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, -5))]),
               child: SizedBox(
-                width: double.infinity, height: 50,
+                width: double.infinity, height: 55,
                 child: ElevatedButton(
-                  onPressed: () => _placeOrder(cartItems), // Order ALL at once!
+                  onPressed: () => _placeOrder(cartItems),
                   style: ElevatedButton.styleFrom(backgroundColor: Colors.green, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-                  child: const Text('ORDER ALL ITEMS', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16, letterSpacing: 1.2)),
+                  child: const Text('ORDER ALL ITEMS', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18, letterSpacing: 1.2)),
                 ),
               ),
             )
@@ -258,15 +253,13 @@ class _CustomerOrdersTabState extends State<CustomerOrdersTab> {
   // =========================================================================
   Widget _buildTrackOrdersView(String uid) {
     return StreamBuilder<QuerySnapshot>(
-      // Note: No orderBy here to prevent the invisible index error! We sort it locally below.
       stream: FirebaseFirestore.instance.collection('orders').where('customerId', isEqualTo: uid).snapshots(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator(color: culinaeBrown));
         if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-          return const Center(child: Text("You have no active orders.", style: TextStyle(color: Colors.grey)));
+          return const Center(child: Text("You have no active orders.", style: TextStyle(color: Colors.grey, fontSize: 18)));
         }
 
-        // Locally sort the orders so newest is at the top
         final List<DocumentSnapshot> orders = snapshot.data!.docs.toList();
         orders.sort((a, b) {
           final timeA = (a.data() as Map<String, dynamic>)['timestamp'] as Timestamp?;
@@ -297,58 +290,58 @@ class _CustomerOrdersTabState extends State<CustomerOrdersTab> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Order sent to: $storeName', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: culinaeBrown)),
-                    const Divider(),
+                    Text('Order sent to: $storeName', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: culinaeBrown)),
+                    const Divider(height: 24),
 
                     ...items.map((item) {
                       return Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 4.0),
+                        padding: const EdgeInsets.symmetric(vertical: 6.0),
                         child: Row(
                           children: [
-                            const Text('1x ', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blueAccent)),
-                            Expanded(child: Text(item['caption'] ?? 'Dish', maxLines: 1, overflow: TextOverflow.ellipsis)),
-                            Text(item['price'] ?? '', style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                            const Text('1x ', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blueAccent, fontSize: 16)),
+                            Expanded(child: Text(item['caption'] ?? 'Dish', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 16))),
+                            Text(item['price'] ?? '', style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 16)),
                           ],
                         ),
                       );
-                    }).toList(),
+                    }),
 
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 20),
 
                     // --- Dynamic Status Display ---
                     if (status == 'pending')
                       Container(
-                        padding: const EdgeInsets.all(12),
+                        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
                         decoration: BoxDecoration(color: Colors.orange.shade50, borderRadius: BorderRadius.circular(8)),
                         child: const Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.orange)),
-                            SizedBox(width: 12),
-                            Text('Waiting for store to accept...', style: TextStyle(color: Colors.orange, fontWeight: FontWeight.bold)),
+                            SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.orange)),
+                            SizedBox(width: 14),
+                            Text('Waiting for store to accept...', style: TextStyle(color: Colors.orange, fontWeight: FontWeight.bold, fontSize: 16)),
                           ],
                         ),
                       )
                     else if (status == 'accepted')
                       SizedBox(
-                        width: double.infinity, height: 45,
+                        width: double.infinity, height: 50,
                         child: ElevatedButton(
                           onPressed: () => _payForOrder(orderId),
                           style: ElevatedButton.styleFrom(backgroundColor: Colors.green, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
-                          child: const Text('PAY FOR MEAL', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
+                          child: const Text('PAY FOR MEAL', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, letterSpacing: 1.2, fontSize: 16)),
                         ),
                       )
                     else if (status == 'rejected')
                         Container(
-                          width: double.infinity, padding: const EdgeInsets.all(12),
+                          width: double.infinity, padding: const EdgeInsets.all(14),
                           decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(8)),
-                          child: const Center(child: Text('Store declined order.', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold))),
+                          child: const Center(child: Text('Store declined order.', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold, fontSize: 16))),
                         )
                       else if (status == 'paid')
                           Container(
-                            width: double.infinity, padding: const EdgeInsets.all(12),
+                            width: double.infinity, padding: const EdgeInsets.all(14),
                             decoration: BoxDecoration(color: Colors.green.shade50, borderRadius: BorderRadius.circular(8)),
-                            child: const Center(child: Text('Paid! Preparing your meal 🍳', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold))),
+                            child: const Center(child: Text('Paid! Preparing your meal 🍳', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 16))),
                           )
                   ],
                 ),

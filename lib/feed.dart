@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-
+import 'package:cached_network_image/cached_network_image.dart'; // <-- The speed package!
 import 'public_store_profile.dart';
 
 class FeedPage extends StatefulWidget {
@@ -171,7 +171,8 @@ class _FeedPageState extends State<FeedPage> {
             return ListTile(
               leading: CircleAvatar(
                 backgroundColor: culinaeBrown,
-                backgroundImage: profilePic.isNotEmpty ? NetworkImage(profilePic) : null,
+                // UPGRADED: Using CachedNetworkImageProvider for avatars
+                backgroundImage: profilePic.isNotEmpty ? CachedNetworkImageProvider(profilePic) : null,
                 child: profilePic.isEmpty ? const Icon(Icons.storefront, color: Colors.white) : null,
               ),
               title: Text(storeName, style: const TextStyle(fontWeight: FontWeight.bold, color: culinaeBrown)),
@@ -188,7 +189,8 @@ class _FeedPageState extends State<FeedPage> {
 
   Widget _buildPostFeed() {
     return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance.collection('posts').orderBy('timestamp', descending: true).snapshots(),
+      // UPGRADED: Added .limit(20) so the app doesn't freeze downloading the whole database!
+      stream: FirebaseFirestore.instance.collection('posts').orderBy('timestamp', descending: true).limit(20).snapshots(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator(color: culinaeBrown));
         if (!snapshot.hasData || snapshot.data!.docs.isEmpty) return const Center(child: Text('No posts yet! Check back later.', style: TextStyle(color: Colors.grey)));
@@ -266,7 +268,7 @@ class _PostCardState extends State<PostCard> {
 
     final data = widget.postDoc.data() as Map<String, dynamic>;
     final List<dynamic> imageUrls = data['imageUrls'] ?? [];
-    final String price = data['price'] ?? 'Contact for info'; // Fetch the new price!
+    final String price = data['price'] ?? 'Contact for info';
 
     try {
       await FirebaseFirestore.instance.collection('users').doc(uid).collection('cart').add({
@@ -274,7 +276,7 @@ class _PostCardState extends State<PostCard> {
         'storeId': data['ownerId'] ?? '',
         'storeName': data['storeName'] ?? 'Unknown Store',
         'caption': data['caption'] ?? 'Delicious food',
-        'price': price, // Save the price to the cart!
+        'price': price,
         'imageUrl': imageUrls.isNotEmpty ? imageUrls[0] : '',
         'addedAt': FieldValue.serverTimestamp(),
       });
@@ -308,7 +310,7 @@ class _PostCardState extends State<PostCard> {
     final String storeName = data['storeName'] ?? 'Unknown Store';
     final String profilePic = data['storeProfilePicUrl'] ?? '';
     final String caption = data['caption'] ?? '';
-    final String price = data['price'] ?? ''; // Fetch the price for display!
+    final String price = data['price'] ?? '';
     final List<dynamic> imageUrls = data['imageUrls'] ?? [];
     final String ownerId = data['ownerId'] ?? '';
     final List<dynamic> tags = data['tags'] ?? [];
@@ -340,7 +342,8 @@ class _PostCardState extends State<PostCard> {
                     onTap: () => _goToStoreProfile(ownerId, storeName),
                     child: CircleAvatar(
                       backgroundColor: culinaeBrown,
-                      backgroundImage: profilePic.isNotEmpty ? NetworkImage(profilePic) : null,
+                      // UPGRADED: Using CachedNetworkImageProvider for avatars
+                      backgroundImage: profilePic.isNotEmpty ? CachedNetworkImageProvider(profilePic) : null,
                       child: profilePic.isEmpty ? const Icon(Icons.storefront, color: Colors.white, size: 20) : null,
                     ),
                   ),
@@ -379,7 +382,15 @@ class _PostCardState extends State<PostCard> {
                     itemCount: imageUrls.length,
                     onPageChanged: (index) => setState(() => _currentImageIndex = index),
                     itemBuilder: (context, index) {
-                      return Image.network(imageUrls[index], fit: BoxFit.cover);
+                      // UPGRADED: Using CachedNetworkImage for lightning fast scrolling
+                      return CachedNetworkImage(
+                        imageUrl: imageUrls[index],
+                        fit: BoxFit.cover,
+                        placeholder: (context, url) => const Center(
+                          child: CircularProgressIndicator(color: culinaeBrown),
+                        ),
+                        errorWidget: (context, url, error) => const Icon(Icons.error, color: Colors.red),
+                      );
                     },
                   ),
                 ),

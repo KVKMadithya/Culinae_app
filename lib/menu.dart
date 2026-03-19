@@ -23,8 +23,8 @@ class OwnerMenuPage extends StatefulWidget {
 class _OwnerMenuPageState extends State<OwnerMenuPage> {
   String _storeName = "Your Store";
   bool _isEditing = false;
-  bool _isLoading = true; // Add a loading state while fetching from Firebase
-  bool _isSaving = false; // Add a loading state for the save button
+  bool _isLoading = true;
+  bool _isSaving = false;
 
   final List<MenuItemData> _menuItems = [];
 
@@ -34,7 +34,7 @@ class _OwnerMenuPageState extends State<OwnerMenuPage> {
   @override
   void initState() {
     super.initState();
-    _fetchMenuData(); // Fetch the menu as soon as the tab opens!
+    _fetchMenuData();
   }
 
   // --- 1️⃣ FIREBASE: Fetch Existing Menu & Store Name ---
@@ -49,14 +49,15 @@ class _OwnerMenuPageState extends State<OwnerMenuPage> {
         final data = doc.data()!;
 
         setState(() {
-          // Grab the real store name if it exists from the Setup Form
           if (data.containsKey('storeName')) {
             _storeName = data['storeName'];
           }
 
-          // Load the menu items if they exist
           if (data.containsKey('menu')) {
             final List<dynamic> savedMenu = data['menu'];
+
+            _menuItems.clear(); // <-- CRITICAL FIX: Clears the list so we don't get duplicates on refresh!
+
             for (var item in savedMenu) {
               _menuItems.add(MenuItemData(
                 name: item['name'] ?? '',
@@ -82,10 +83,8 @@ class _OwnerMenuPageState extends State<OwnerMenuPage> {
 
     setState(() => _isSaving = true);
 
-    // Convert our controllers into a clean list of data to send to Firebase
     List<Map<String, String>> menuToSave = [];
     for (var item in _menuItems) {
-      // Don't save completely empty rows to the database
       if (item.nameController.text.trim().isNotEmpty || item.priceController.text.trim().isNotEmpty) {
         menuToSave.add({
           'name': item.nameController.text.trim(),
@@ -95,10 +94,9 @@ class _OwnerMenuPageState extends State<OwnerMenuPage> {
     }
 
     try {
-      // Update the 'menu' array inside this owner's document
       await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
         'menu': menuToSave,
-      }, SetOptions(merge: true)); // merge: true ensures we don't accidentally overwrite their role or name!
+      }, SetOptions(merge: true));
 
       setState(() {
         _isEditing = false;
@@ -161,11 +159,8 @@ class _OwnerMenuPageState extends State<OwnerMenuPage> {
       appBar: AppBar(
         backgroundColor: culinaeCream,
         elevation: 0,
-        automaticallyImplyLeading: false, // Prevents any accidental back buttons from rendering
-        title: Text(
-          "$_storeName Menu",
-          style: const TextStyle(color: culinaeBrown, fontWeight: FontWeight.bold),
-        ),
+        automaticallyImplyLeading: false,
+        title: Text("$_storeName Menu", style: const TextStyle(color: culinaeBrown, fontWeight: FontWeight.bold)),
         centerTitle: true,
         actions: [
           if (_isEditing)
@@ -189,17 +184,13 @@ class _OwnerMenuPageState extends State<OwnerMenuPage> {
       )
           : null,
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: culinaeBrown)) // Loading spinner while grabbing from Firebase
+          ? const Center(child: CircularProgressIndicator(color: culinaeBrown))
           : Column(
         children: [
           if (!_isEditing && isMenuEmpty)
             const Expanded(
               child: Center(
-                child: Text(
-                  'Your menu is empty.\nTap the pen icon to add dishes!',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.grey, fontSize: 16),
-                ),
+                child: Text('Your menu is empty.\nTap the pen icon to add dishes!', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey, fontSize: 16)),
               ),
             )
           else
@@ -238,24 +229,14 @@ class _OwnerMenuPageState extends State<OwnerMenuPage> {
     final item = _menuItems[index];
 
     if (!_isEditing) {
-      if (item.nameController.text.isEmpty && item.priceController.text.isEmpty) {
-        return const SizedBox.shrink();
-      }
+      if (item.nameController.text.isEmpty && item.priceController.text.isEmpty) return const SizedBox.shrink();
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 12.0, horizontal: 8.0),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Expanded(
-              child: Text(
-                item.nameController.text.isEmpty ? 'Unnamed Dish' : item.nameController.text,
-                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: culinaeBrown),
-              ),
-            ),
-            Text(
-              'Rs. ${item.priceController.text.isEmpty ? '0.00' : item.priceController.text}',
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w500, color: Colors.black87),
-            ),
+            Expanded(child: Text(item.nameController.text.isEmpty ? 'Unnamed Dish' : item.nameController.text, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: culinaeBrown))),
+            Text('Rs. ${item.priceController.text.isEmpty ? '0.00' : item.priceController.text}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w500, color: Colors.black87)),
           ],
         ),
       );
@@ -270,11 +251,7 @@ class _OwnerMenuPageState extends State<OwnerMenuPage> {
             flex: 2,
             child: TextField(
               controller: item.nameController,
-              decoration: InputDecoration(
-                hintText: 'Dish Name', filled: true, fillColor: Colors.white,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
-              ),
+              decoration: InputDecoration(hintText: 'Dish Name', filled: true, fillColor: Colors.white, contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14), border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none)),
             ),
           ),
           const SizedBox(width: 8),
@@ -283,18 +260,10 @@ class _OwnerMenuPageState extends State<OwnerMenuPage> {
             child: TextField(
               controller: item.priceController,
               keyboardType: TextInputType.number,
-              decoration: InputDecoration(
-                prefixText: 'Rs. ', prefixStyle: const TextStyle(color: culinaeBrown, fontWeight: FontWeight.bold),
-                hintText: '0.00', filled: true, fillColor: Colors.white,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
-              ),
+              decoration: InputDecoration(prefixText: 'Rs. ', prefixStyle: const TextStyle(color: culinaeBrown, fontWeight: FontWeight.bold), hintText: '0.00', filled: true, fillColor: Colors.white, contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14), border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none)),
             ),
           ),
-          IconButton(
-            icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
-            onPressed: () => _removeRow(index),
-          ),
+          IconButton(icon: const Icon(Icons.delete_outline, color: Colors.redAccent), onPressed: () => _removeRow(index)),
         ],
       ),
     );

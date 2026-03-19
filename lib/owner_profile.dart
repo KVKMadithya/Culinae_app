@@ -4,20 +4,10 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:image_picker/image_picker.dart';
+
 import 'create_post_page.dart';
-
+import 'feed.dart'; // <-- Needed to reuse the interactive PostCard!
 import 'main.dart';
-import 'customer_home.dart';
-
-// --- Data Models ---
-class OwnerPost {
-  final String imageUrl;
-  final String caption;
-  final List<String> tags;
-  final Timestamp? timestamp; // <-- Added so we can sort them locally!
-
-  OwnerPost({required this.imageUrl, required this.caption, required this.tags, this.timestamp});
-}
 
 // --- Main Owner Profile Page ---
 class OwnerProfileTab extends StatefulWidget {
@@ -40,7 +30,8 @@ class _OwnerProfileTabState extends State<OwnerProfileTab> {
   int followersCount = 0;
   int totalLikes = 0;
 
-  final List<OwnerPost> _posts = [];
+  // CHANGED: Now storing the full DocumentSnapshot so we can open the PostCard!
+  final List<DocumentSnapshot> _storePosts = [];
   bool _isLoading = true;
 
   static const Color culinaeBrown = Color(0xFF4A1F1F);
@@ -88,7 +79,6 @@ class _OwnerProfileTabState extends State<OwnerProfileTab> {
     if (uid == null) return;
 
     try {
-      // THE FIX: Removed the .orderBy() so Firebase doesn't crash from a missing index!
       final snapshot = await FirebaseFirestore.instance
           .collection('posts')
           .where('ownerId', isEqualTo: uid)
@@ -96,7 +86,7 @@ class _OwnerProfileTabState extends State<OwnerProfileTab> {
 
       if (mounted) {
         int calculatedLikes = 0;
-        List<OwnerPost> fetchedPosts = [];
+        List<DocumentSnapshot> fetchedDocs = [];
 
         for (var doc in snapshot.docs) {
           final data = doc.data();
@@ -105,32 +95,27 @@ class _OwnerProfileTabState extends State<OwnerProfileTab> {
           List<dynamic> postLikes = data['likes'] ?? [];
           calculatedLikes += postLikes.length;
 
-          // 2. Grab the first image for the grid
-          List<dynamic> urls = data['imageUrls'] ?? [];
-          String mainImageUrl = urls.isNotEmpty ? urls[0] : '';
-
-          if (mainImageUrl.isNotEmpty) {
-            fetchedPosts.add(OwnerPost(
-              imageUrl: mainImageUrl,
-              caption: data['caption'] ?? '',
-              tags: List<String>.from(data['tags'] ?? []),
-              timestamp: data['timestamp'] as Timestamp?, // Save the time to sort locally
-            ));
-          }
+          // 2. Add the whole document to our list
+          fetchedDocs.add(doc);
         }
 
-        // THE FIX: Sort the posts locally (Newest at the top)
-        fetchedPosts.sort((a, b) {
-          if (a.timestamp == null && b.timestamp == null) return 0;
-          if (a.timestamp == null) return 1;
-          if (b.timestamp == null) return -1;
-          return b.timestamp!.compareTo(a.timestamp!);
+        // 3. Sort the posts locally (Newest at the top)
+        fetchedDocs.sort((a, b) {
+          final dataA = a.data() as Map<String, dynamic>;
+          final dataB = b.data() as Map<String, dynamic>;
+          final timeA = dataA['timestamp'] as Timestamp?;
+          final timeB = dataB['timestamp'] as Timestamp?;
+
+          if (timeA == null && timeB == null) return 0;
+          if (timeA == null) return 1;
+          if (timeB == null) return -1;
+          return timeB.compareTo(timeA);
         });
 
         setState(() {
-          _posts.clear();
-          _posts.addAll(fetchedPosts);
-          totalLikes = calculatedLikes; // The real likes should now show!
+          _storePosts.clear();
+          _storePosts.addAll(fetchedDocs);
+          totalLikes = calculatedLikes;
         });
       }
     } catch (e) {
@@ -139,19 +124,22 @@ class _OwnerProfileTabState extends State<OwnerProfileTab> {
   }
 
   // --- Account Management Popups ---
+  // --- Account Management Popups ---
   Future<void> _handleMenuSelection(String value) async {
     if (value == 'logout') {
       bool confirm = await _showConfirmationDialog('Log Out?', 'Are you sure you want to log out?', 'Log Out', culinaeBrown);
       if (confirm) {
         await FirebaseAuth.instance.signOut();
-        if (mounted) Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (context) => const AuthWrapper()), (route) => false);
+        // FIXED: Added rootNavigator: true
+        if (mounted) Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(MaterialPageRoute(builder: (context) => const AuthWrapper()), (route) => false);
       }
     } else if (value == 'delete') {
       bool confirm = await _showConfirmationDialog('Delete Account?', 'WARNING: This action cannot be undone.', 'Delete Forever', Colors.red);
       if (confirm) {
         try {
           await FirebaseAuth.instance.currentUser?.delete();
-          if (mounted) Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (context) => const AuthWrapper()), (route) => false);
+          // FIXED: Added rootNavigator: true
+          if (mounted) Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(MaterialPageRoute(builder: (context) => const AuthWrapper()), (route) => false);
         } catch (e) {
           if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Security alert: Please log out and log back in before deleting.')));
         }
@@ -285,7 +273,7 @@ class _OwnerProfileTabState extends State<OwnerProfileTab> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
-                  _buildStatColumn('Posts', _posts.length),
+                  _buildStatColumn('Posts', _storePosts.length),
                   _buildStatColumn('Followers', followersCount),
                   _buildStatColumn('Total Likes', totalLikes),
                 ],
@@ -304,7 +292,7 @@ class _OwnerProfileTabState extends State<OwnerProfileTab> {
               ),
             ),
 
-            // --- PHOTO GRID ---
+            // --- CLICKABLE PHOTO GRID ---
             GridView.builder(
               physics: const NeverScrollableScrollPhysics(),
               shrinkWrap: true,
@@ -313,8 +301,9 @@ class _OwnerProfileTabState extends State<OwnerProfileTab> {
                 crossAxisSpacing: 2.0,
                 mainAxisSpacing: 2.0,
               ),
-              itemCount: _posts.length + 1,
+              itemCount: _storePosts.length + 1,
               itemBuilder: (context, index) {
+                // The very first tile is always the "Add Post" button
                 if (index == 0) {
                   return GestureDetector(
                     onTap: () async {
@@ -341,8 +330,40 @@ class _OwnerProfileTabState extends State<OwnerProfileTab> {
                   );
                 }
 
-                final post = _posts[index - 1];
-                return Image.network(post.imageUrl, fit: BoxFit.cover);
+                // Everything after index 0 is an actual post
+                final postDoc = _storePosts[index - 1];
+                final data = postDoc.data() as Map<String, dynamic>;
+                final List<dynamic> urls = data['imageUrls'] ?? [];
+                final String mainImage = urls.isNotEmpty ? urls[0] : '';
+
+                if (mainImage.isEmpty) return const SizedBox();
+
+                return GestureDetector(
+                  onTap: () {
+                    // Slide up a new screen containing the fully interactive PostCard!
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => Scaffold(
+                          backgroundColor: const Color(0xFFFFF3E3),
+                          appBar: AppBar(
+                            backgroundColor: const Color(0xFFFFF3E3),
+                            elevation: 0,
+                            leading: const BackButton(color: Color(0xFF4A1F1F)),
+                            title: const Text('Your Post', style: TextStyle(color: Color(0xFF4A1F1F), fontWeight: FontWeight.bold)),
+                          ),
+                          body: SingleChildScrollView(
+                            child: Padding(
+                              padding: const EdgeInsets.only(top: 8.0),
+                              child: PostCard(postDoc: postDoc),
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                  child: Image.network(mainImage, fit: BoxFit.cover),
+                );
               },
             ),
           ],

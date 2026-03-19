@@ -6,7 +6,8 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:image_picker/image_picker.dart';
 
 import 'owner_home.dart';
-import 'feed.dart'; // <-- IMPORTED THIS so we can reuse the PostCard!
+import 'feed.dart';
+import 'main.dart'; // <-- Added this to route back to Login/AuthWrapper!
 
 // -- Main Profile Page --
 class ProfilePage extends StatefulWidget {
@@ -17,17 +18,13 @@ class ProfilePage extends StatefulWidget {
 }
 
 class _ProfilePageState extends State<ProfilePage> {
-  // Real State Variables
   String profilePicUrl = '';
   String username = 'Loading...';
   String bio = '';
   String savedLocation = '';
 
-  // CHANGED: We now save the entire Document, not just the string URL!
   List<DocumentSnapshot> savedPosts = [];
   bool _isLoading = true;
-
-  // Dual Role State
   bool _canSwitchToOwner = false;
 
   static const Color culinaeBrown = Color(0xFF4A1F1F);
@@ -49,7 +46,6 @@ class _ProfilePageState extends State<ProfilePage> {
       if (doc.exists && doc.data() != null) {
         final data = doc.data()!;
 
-        // 1. Load Profile Details
         setState(() {
           username = data['name'] ?? data['username'] ?? 'Culinae User';
           bio = data['bio'] ?? '';
@@ -58,7 +54,6 @@ class _ProfilePageState extends State<ProfilePage> {
           if (data['hasDualRole'] == true) _canSwitchToOwner = true;
         });
 
-        // 2. Load Saved Posts Grid
         List<dynamic> savedPostIds = data['savedPostIds'] ?? [];
         List<DocumentSnapshot> fetchedPosts = [];
 
@@ -81,7 +76,6 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
-  // --- Reusable Themed Confirmation Popup ---
   Future<bool> _showConfirmationDialog(String title, String content, String confirmText, Color confirmColor) async {
     return await showDialog(
       context: context,
@@ -109,19 +103,24 @@ class _ProfilePageState extends State<ProfilePage> {
         final uid = FirebaseAuth.instance.currentUser?.uid;
         if (uid != null) {
           await FirebaseFirestore.instance.collection('users').doc(uid).update({'role': 'owner'});
-          if (mounted) Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (context) => const OwnerHomePage()), (route) => false);
+          // FIXED THE INCEPTION NAVBAR: Added rootNavigator: true!
+          if (mounted) Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(MaterialPageRoute(builder: (context) => const OwnerHomePage()), (route) => false);
         }
       }
     } else if (value == 'logout') {
       bool confirm = await _showConfirmationDialog('Log Out?', 'Are you sure you want to log out of Culinae?', 'Log Out', culinaeBrown);
       if (confirm) {
         await FirebaseAuth.instance.signOut();
+        // FIXED THE INCEPTION NAVBAR: Added rootNavigator: true!
+        if (mounted) Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(MaterialPageRoute(builder: (context) => const AuthWrapper()), (route) => false);
       }
     } else if (value == 'delete') {
       bool confirm = await _showConfirmationDialog('Delete Account?', 'WARNING: This action cannot be undone.', 'Delete Forever', Colors.red);
       if (confirm) {
         try {
           await FirebaseAuth.instance.currentUser?.delete();
+          // FIXED THE INCEPTION NAVBAR: Added rootNavigator: true!
+          if (mounted) Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(MaterialPageRoute(builder: (context) => const AuthWrapper()), (route) => false);
         } catch (e) {
           if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Security alert: Please log out and log back in before deleting your account.')));
         }
@@ -149,9 +148,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
-      return const Scaffold(backgroundColor: culinaeCream, body: Center(child: CircularProgressIndicator(color: culinaeBrown)));
-    }
+    if (_isLoading) return const Scaffold(backgroundColor: culinaeCream, body: Center(child: CircularProgressIndicator(color: culinaeBrown)));
 
     final bool isProfileEmpty = profilePicUrl.isEmpty;
 
@@ -184,7 +181,7 @@ class _ProfilePageState extends State<ProfilePage> {
               isProfileEmpty: isProfileEmpty,
               username: username,
               bio: bio,
-              savesCount: savedPosts.length, // Passed the length of the documents array
+              savesCount: savedPosts.length,
               onEditPressed: _openEditProfile,
             ),
             const Padding(
@@ -198,16 +195,12 @@ class _ProfilePageState extends State<ProfilePage> {
               ),
             ),
             if (savedPosts.isNotEmpty)
-              SavedPostsGrid(posts: savedPosts) // Passed the documents array!
+              SavedPostsGrid(posts: savedPosts)
             else
               const Padding(
                 padding: EdgeInsets.all(32.0),
                 child: Center(
-                  child: Text(
-                    'Follow stores to see and save their latest posts!',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.grey, fontSize: 16),
-                  ),
+                  child: Text('Follow stores to see and save their latest posts!', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey, fontSize: 16)),
                 ),
               ),
           ],
@@ -226,15 +219,7 @@ class ProfileHeader extends StatelessWidget {
   final int savesCount;
   final VoidCallback onEditPressed;
 
-  const ProfileHeader({
-    super.key,
-    required this.profilePicUrl,
-    required this.isProfileEmpty,
-    required this.username,
-    required this.bio,
-    required this.savesCount,
-    required this.onEditPressed,
-  });
+  const ProfileHeader({super.key, required this.profilePicUrl, required this.isProfileEmpty, required this.username, required this.bio, required this.savesCount, required this.onEditPressed});
 
   @override
   Widget build(BuildContext context) {
@@ -257,9 +242,9 @@ class ProfileHeader extends StatelessWidget {
               const Expanded(child: SizedBox()),
               _buildStatColumn('Saves', savesCount),
               const SizedBox(width: 24),
-              _buildStatColumn('Stores', 0), // Default 0 as requested
+              _buildStatColumn('Stores', 0),
               const SizedBox(width: 24),
-              _buildStatColumn('Community', 0), // Default 0 as requested
+              _buildStatColumn('Community', 0),
               const SizedBox(width: 16),
             ],
           ),
@@ -297,7 +282,7 @@ class ProfileHeader extends StatelessWidget {
   }
 }
 
-// -- UPGRADED: Saved Posts Grid Widget (Now Clickable!) --
+// -- Saved Posts Grid Widget (Already Clickable!) --
 class SavedPostsGrid extends StatelessWidget {
   final List<DocumentSnapshot> posts;
   const SavedPostsGrid({super.key, required this.posts});
@@ -322,7 +307,7 @@ class SavedPostsGrid extends StatelessWidget {
 
         return GestureDetector(
           onTap: () {
-            // Opens a new screen and renders the exact PostCard from your feed!
+            // This is the part that opens up the full PostCard when tapped!
             Navigator.push(
               context,
               MaterialPageRoute(
@@ -337,7 +322,7 @@ class SavedPostsGrid extends StatelessWidget {
                   body: SingleChildScrollView(
                     child: Padding(
                       padding: const EdgeInsets.only(top: 8.0),
-                      child: PostCard(postDoc: posts[index]), // Recycled from Feed!
+                      child: PostCard(postDoc: posts[index]),
                     ),
                   ),
                 ),
@@ -393,14 +378,12 @@ class _EditProfileModalState extends State<EditProfileModal> {
     super.dispose();
   }
 
-  // Pick Image from Gallery
   Future<void> _pickImage() async {
     final picker = ImagePicker();
     final pickedFile = await picker.pickImage(source: ImageSource.gallery, imageQuality: 50);
     if (pickedFile != null) setState(() => _newImageFile = File(pickedFile.path));
   }
 
-  // Upload to Firebase and Save Data
   Future<void> _saveProfile() async {
     setState(() => _isSaving = true);
     final uid = FirebaseAuth.instance.currentUser?.uid;
@@ -409,14 +392,12 @@ class _EditProfileModalState extends State<EditProfileModal> {
       try {
         String finalImageUrl = _currentProfilePicUrl;
 
-        // Upload new image if selected
         if (_newImageFile != null) {
           final storageRef = FirebaseStorage.instance.ref().child('profile_pics/$uid.jpg');
           await storageRef.putFile(_newImageFile!);
           finalImageUrl = await storageRef.getDownloadURL();
         }
 
-        // Save Data to Firestore
         await FirebaseFirestore.instance.collection('users').doc(uid).update({
           'name': _usernameController.text.trim(),
           'bio': _bioController.text.trim(),
@@ -424,7 +405,7 @@ class _EditProfileModalState extends State<EditProfileModal> {
           'profilePicUrl': finalImageUrl,
         });
 
-        if (mounted) Navigator.pop(context, true); // Tell parent to refresh!
+        if (mounted) Navigator.pop(context, true);
       } catch (e) {
         debugPrint("Error saving profile: $e");
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to save profile. Try again.')));

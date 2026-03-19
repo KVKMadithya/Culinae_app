@@ -5,6 +5,7 @@ import 'map_tab.dart';
 import 'profile_page.dart';
 import 'feed.dart';
 import 'customer_orders.dart';
+import 'customer_chatbot.dart'; // <-- IMPORTED THE NEW AI CHATBOT!
 
 class CustomerHomePage extends StatefulWidget {
   const CustomerHomePage({super.key});
@@ -17,8 +18,9 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
   int _currentIndex = 0;
 
   // 1. Create a unique navigation "Key" for each tab.
-  // This allows each tab to push and pop its own pages without hiding the bottom bar!
+  // We now have 5 keys for our 5 tabs!
   final List<GlobalKey<NavigatorState>> _navigatorKeys = [
+    GlobalKey<NavigatorState>(),
     GlobalKey<NavigatorState>(),
     GlobalKey<NavigatorState>(),
     GlobalKey<NavigatorState>(),
@@ -28,7 +30,8 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
   // 2. The base screens for each tab
   final List<Widget> _pages = [
     const FeedPage(),
-    const MapTab(),
+    const CustomerMapTab(),
+    const CustomerChatbotTab(), // <--- THE NEW AI TAB IN THE MIDDLE!
     const CustomerOrdersTab(),
     const ProfilePage(),
   ];
@@ -60,7 +63,6 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
         backgroundColor: const Color(0xFF4A1F1F),
 
         // 3. IndexedStack keeps all tabs alive in the background.
-        // This is what stops the Feed from resetting to the top when you switch tabs!
         body: SafeArea(
           child: IndexedStack(
             index: _currentIndex,
@@ -91,11 +93,14 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
           backgroundColor: const Color(0xFFFFF3E3),
           selectedItemColor: const Color(0xFF4A1F1F),
           unselectedItemColor: Colors.brown.shade300,
-          showSelectedLabels: false,
-          showUnselectedLabels: false,
+          showSelectedLabels: true, // Turned labels ON for better UX with 5 tabs
+          showUnselectedLabels: true,
+          selectedFontSize: 10,
+          unselectedFontSize: 10,
           items: const [
-            BottomNavigationBarItem(icon: Icon(Icons.home_rounded), label: 'Home'),
+            BottomNavigationBarItem(icon: Icon(Icons.home_rounded), label: 'Feed'),
             BottomNavigationBarItem(icon: Icon(Icons.map_rounded), label: 'Map'),
+            BottomNavigationBarItem(icon: Icon(Icons.smart_toy_rounded, size: 28), label: 'AI Chef'), // <-- THE NEW ICON
             BottomNavigationBarItem(icon: Icon(Icons.shopping_bag_rounded), label: 'Orders'),
             BottomNavigationBarItem(icon: Icon(Icons.person_rounded), label: 'Profile'),
           ],

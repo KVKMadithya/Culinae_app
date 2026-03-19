@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'menu.dart';
 import 'owner_profile.dart';
 import 'feed.dart';
-import 'owner_orders.dart'; // <-- Perfectly linked to your real orders page!
+import 'owner_orders.dart';
+import 'map_tab.dart'; // <-- IMPORTED THE REAL MAPS FILE HERE!
 
 class OwnerHomePage extends StatefulWidget {
   const OwnerHomePage({super.key});
@@ -28,8 +29,8 @@ class _OwnerHomePageState extends State<OwnerHomePage> {
   final List<Widget> _pages = [
     const FeedPage(),
     const OwnerMenuPage(),
-    const OwnerOrdersTab(), // <-- The real Live Orders dashboard!
-    const OwnerMapTab(),
+    const OwnerOrdersTab(),
+    const OwnerMapTab(), // <-- Now perfectly connects to the real map!
     const OwnerProfileTab(),
   ];
 
@@ -101,24 +102,6 @@ class _OwnerHomePageState extends State<OwnerHomePage> {
           ],
         ),
       ),
-    );
-  }
-}
-
-/* =========================
-   OWNER PLACEHOLDER TABS
-   ========================= */
-
-// (The OwnerOrdersTab placeholder was deleted because you built the real one!)
-
-class OwnerMapTab extends StatelessWidget {
-  const OwnerMapTab({super.key});
-  @override
-  Widget build(BuildContext context) {
-    return const Center(
-      child: Text('Store Map Location 📍\n(Coming Soon)',
-          textAlign: TextAlign.center,
-          style: TextStyle(color: Colors.white, fontSize: 18)),
     );
   }
 }
