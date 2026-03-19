@@ -3,8 +3,9 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'customer_home.dart';
-import 'owner_home.dart';
+import 'owner_home.dart'; // <-- Added this back!
 import 'signin_page.dart';
+import 'owner_setup_page.dart';
 
 enum UserRole { customer, owner }
 
@@ -48,9 +49,11 @@ class _LoginPageState extends State<LoginPage> {
         throw Exception('User data not found');
       }
 
-      final role = doc['role'];
+      // Safely grab the data
+      final data = doc.data() as Map<String, dynamic>;
+      final role = data['role'];
 
-      // 3️⃣ Redirect based on role
+      // 3️⃣ Redirect based on role AND setup status
       if (!mounted) return;
 
       if (role == 'customer') {
@@ -59,10 +62,20 @@ class _LoginPageState extends State<LoginPage> {
           MaterialPageRoute(builder: (_) => const CustomerHomePage()),
         );
       } else if (role == 'owner') {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const OwnerHomePage()),
-        );
+        // Check if they already finished setup
+        final bool isSetupComplete = data.containsKey('isSetupComplete') && data['isSetupComplete'] == true;
+
+        if (isSetupComplete) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const OwnerHomePage()),
+          );
+        } else {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const OwnerSetupPage()),
+          );
+        }
       } else {
         throw Exception('Invalid user role');
       }
@@ -72,7 +85,9 @@ class _LoginPageState extends State<LoginPage> {
     } catch (e) {
       _showError(e.toString());
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -98,49 +113,25 @@ class _LoginPageState extends State<LoginPage> {
                 onPressed: () => Navigator.pop(context),
                 icon: const Icon(Icons.arrow_back, color: Colors.white),
               ),
-
               const SizedBox(height: 24),
-
               Text(
                 isOwner ? 'Store Owner Login' : 'Welcome Back',
-                style: const TextStyle(
-                  fontSize: 28,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                ),
+                style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.white),
               ),
-
               const SizedBox(height: 40),
-
-              _inputField(
-                controller: _emailController,
-                hint: 'Email',
-                icon: Icons.email_outlined,
-              ),
-
+              _inputField(controller: _emailController, hint: 'Email', icon: Icons.email_outlined),
               const SizedBox(height: 16),
-
               _inputField(
                 controller: _passwordController,
                 hint: 'Password',
                 icon: Icons.lock_outline,
                 obscure: _obscurePassword,
                 suffix: IconButton(
-                  icon: Icon(
-                    _obscurePassword
-                        ? Icons.visibility_off
-                        : Icons.visibility,
-                  ),
-                  onPressed: () {
-                    setState(() {
-                      _obscurePassword = !_obscurePassword;
-                    });
-                  },
+                  icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility),
+                  onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
                 ),
               ),
-
               const SizedBox(height: 24),
-
               SizedBox(
                 width: double.infinity,
                 height: 52,
@@ -148,49 +139,21 @@ class _LoginPageState extends State<LoginPage> {
                   onPressed: _isLoading ? null : _login,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFFFFF3E3),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                    ),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                   ),
                   child: _isLoading
                       ? const CircularProgressIndicator()
-                      : const Text(
-                    'Log In',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF4A1F1F),
-                    ),
-                  ),
+                      : const Text('Log In', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF4A1F1F))),
                 ),
               ),
-
               const SizedBox(height: 30),
-
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Text(
-                    "Don't have an account?",
-                    style: TextStyle(color: Colors.white70),
-                  ),
+                  const Text("Don't have an account?", style: TextStyle(color: Colors.white70)),
                   TextButton(
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) =>
-                              SignInPage(role: isOwner ? 'owner' : 'customer'),
-                        ),
-                      );
-                    },
-                    child: const Text(
-                      'Sign up',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFFFFF3E3),
-                      ),
-                    ),
+                    onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => SignInPage(role: isOwner ? 'owner' : 'customer'))),
+                    child: const Text('Sign up', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFFFF3E3))),
                   ),
                 ],
               ),
@@ -201,26 +164,13 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
-  Widget _inputField({
-    required TextEditingController controller,
-    required String hint,
-    required IconData icon,
-    bool obscure = false,
-    Widget? suffix,
-  }) {
+  Widget _inputField({required TextEditingController controller, required String hint, required IconData icon, bool obscure = false, Widget? suffix}) {
     return TextField(
       controller: controller,
       obscureText: obscure,
       decoration: InputDecoration(
-        hintText: hint,
-        prefixIcon: Icon(icon),
-        suffixIcon: suffix,
-        filled: true,
-        fillColor: const Color(0xFFFFF3E3),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide.none,
-        ),
+        hintText: hint, prefixIcon: Icon(icon), suffixIcon: suffix, filled: true, fillColor: const Color(0xFFFFF3E3),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
       ),
     );
   }
