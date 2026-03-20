@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:google_generative_ai/google_generative_ai.dart'; // <-- THE REAL AI BRAIN!
+import 'package:google_generative_ai/google_generative_ai.dart';
 
 class CustomerChatbotTab extends StatefulWidget {
   const CustomerChatbotTab({super.key});
@@ -17,7 +17,7 @@ class _CustomerChatbotTabState extends State<CustomerChatbotTab> {
   final List<Map<String, dynamic>> _messages = [
     {
       'sender': 'ai',
-      'text': 'Hi! I am your Culinae AI Chef 🧑‍🍳\nTell me what you are craving, and I will figure out the recipe and find the closest stores with the ingredients!'
+      'text': 'Hi! I am your Culinae AI Chef 🧑‍🍳\nAsk me for a recipe, search for a specific food like "Ice Cream", or ask me where a specific store is located!'
     }
   ];
 
@@ -40,69 +40,67 @@ class _CustomerChatbotTabState extends State<CustomerChatbotTab> {
     await _analyzeWithGeminiAndSearch(text);
   }
 
-  // --- 🤖 THE GEMINI AI ENGINE ---
+  // --- 🤖 THE INTENT-DRIVEN AI ENGINE ---
   Future<void> _analyzeWithGeminiAndSearch(String userQuery) async {
-    // ⚠️ TODO: For industry standard security, move this key to a .env file before launching!
     const apiKey = 'AIzaSyBr48QiS3hoVFUvgXJWF1xGJm8BaBt1Nv4';
+    final model = GenerativeModel(model: 'gemini-2.5-flash', apiKey: apiKey);
 
-    if (apiKey == 'AIzaSyBr48QiS3hoVFUvgXJWF1xGJm8BaBt1Nv4') {
-      _addAiMessage("Please put your Gemini API Key in the code first!");
-      return;
-    }
-
-    final model = GenerativeModel(model: 'gemini-1.5-flash', apiKey: apiKey);
-
-    // This is "Prompt Engineering". We are giving the AI strict instructions on how to reply!
+    // NEW: We are teaching the AI to categorize the user's intent!
     final prompt = '''
-      You are a helpful AI Chef for a food delivery app.
+      You are an AI Assistant for a food delivery app.
       The user says: "$userQuery"
       
-      Identify the dish they want to make. 
-      Return EXACTLY two lines. Do not use markdown, bolding, or bullet points.
-      Line 1: A friendly, short sentence acknowledging the dish.
-      Line 2: A comma-separated list of 3 to 6 main raw ingredients needed (e.g., Tomato, Cheese, Pasta, Basil).
+      Categorize the request into one of three types:
+      1. RECIPE (The user wants to cook something)
+      2. ITEM_SEARCH (The user is looking to buy a specific ready-made food, e.g., "ice cream", "pizza")
+      3. STORE_LOCATION (The user is asking where a specific store is located)
+      4. OTHER (Not related to food or stores)
       
-      If the user is not asking about food, return:
-      Line 1: I am your AI Chef, I can only help you cook and find food!
-      Line 2: none
+      Return EXACTLY three lines. Do not use markdown.
+      Line 1: A friendly, short sentence acknowledging the request.
+      Line 2: The category (RECIPE, ITEM_SEARCH, STORE_LOCATION, or OTHER).
+      Line 3: 
+      - If RECIPE: Comma-separated list of raw ingredients needed.
+      - If ITEM_SEARCH: Comma-separated list of the main food keywords.
+      - If STORE_LOCATION: The exact name of the store they are asking about.
+      - If OTHER: none
     ''';
 
-    List<String> requiredIngredients = [];
     String aiChatResponse = "";
+    String intent = "";
+    List<String> keywords = [];
 
     try {
       final content = [Content.text(prompt)];
       final response = await model.generateContent(content);
       final rawText = response.text?.trim() ?? "";
 
-      // Split the AI's response into the Chat Text and the Data Array
       final lines = rawText.split('\n').where((line) => line.trim().isNotEmpty).toList();
 
-      if (lines.isNotEmpty) {
-        aiChatResponse = lines[0]; // Line 1: The friendly message
+      if (lines.length >= 2) {
+        aiChatResponse = lines[0];
+        intent = lines[1].trim().toUpperCase();
 
-        if (lines.length > 1 && lines[1].toLowerCase() != 'none') {
-          // Line 2: The ingredients! Split by comma and clean up spaces.
-          requiredIngredients = lines[1].split(',').map((e) => e.trim().toLowerCase()).toList();
+        if (lines.length >= 3 && lines[2].toLowerCase() != 'none') {
+          keywords = lines[2].split(',').map((e) => e.trim().toLowerCase()).toList();
         }
       }
-
     } catch (e) {
       debugPrint("Gemini API Error: $e");
       _addAiMessage("My AI brain is a little disconnected right now. Try again in a moment!");
       return;
     }
 
-    // Add the AI's conversational response to the chat
+    // Immediately show the AI's conversational response
     setState(() => _messages.add({'sender': 'ai', 'text': aiChatResponse}));
     _scrollToBottom();
 
-    if (requiredIngredients.isEmpty) {
+    if (intent == 'OTHER' || keywords.isEmpty) {
       setState(() => _isTyping = false);
-      return; // Stop here if it wasn't a food question
+      return;
     }
 
-    // --- GPS & FIREBASE SEARCH ENGINE ---
+    // --- 📍 GPS LOCATION FETCH ---
     Position? currentPos;
     try {
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
@@ -117,62 +115,117 @@ class _CustomerChatbotTabState extends State<CustomerChatbotTab> {
     }
 
     if (currentPos == null) {
-      _addAiMessage("I know the ingredients, but I can't access your GPS to find nearby stores!");
+      _addAiMessage("I know what you are looking for, but I can't access your GPS to find it nearby!");
       return;
     }
 
+    // ==========================================================
+    // 🧠 DYNAMIC FIREBASE SEARCHING BASED ON INTENT
+    // ==========================================================
+
     try {
-      final snapshot = await FirebaseFirestore.instance.collection('users').where('role', isEqualTo: 'owner').get();
-      List<Map<String, dynamic>> recommendedStores = [];
+      // --------------------------------------------------------
+      // INTENT: STORE LOCATION (Find a specific store by name)
+      // --------------------------------------------------------
+      if (intent == 'STORE_LOCATION') {
+        final storeNameToFind = keywords.first; // e.g., "burger king"
+        final userSnapshot = await FirebaseFirestore.instance.collection('users').where('role', isEqualTo: 'owner').get();
 
-      for (var doc in snapshot.docs) {
-        final data = doc.data();
-        final GeoPoint? storeGeo = data['storeLocation'] as GeoPoint?;
-        final List<dynamic>? menu = data['menu'];
+        bool storeFound = false;
 
-        if (storeGeo != null && menu != null) {
-          List<String> foundIngredients = [];
+        for (var doc in userSnapshot.docs) {
+          final data = doc.data();
+          final String dbStoreName = (data['storeName'] ?? '').toString().toLowerCase();
 
-          for (var item in menu) {
-            final String itemName = (item['name'] ?? '').toString().toLowerCase();
-            for (var req in requiredIngredients) {
-              if (itemName.contains(req) && !foundIngredients.contains(req)) {
-                foundIngredients.add(req); // Match found!
-              }
+          if (dbStoreName.contains(storeNameToFind)) {
+            final GeoPoint? storeGeo = data['storeLocation'] as GeoPoint?;
+            if (storeGeo != null) {
+              double distanceInKm = Geolocator.distanceBetween(
+                currentPos.latitude, currentPos.longitude,
+                storeGeo.latitude, storeGeo.longitude,
+              ) / 1000;
+
+              _addAiMessage("📍 **${data['storeName']}** is located ${distanceInKm.toStringAsFixed(1)} km away from you!");
+              storeFound = true;
             }
           }
+        }
 
-          if (foundIngredients.isNotEmpty) {
-            double distanceInMeters = Geolocator.distanceBetween(
-              currentPos.latitude, currentPos.longitude,
-              storeGeo.latitude, storeGeo.longitude,
-            );
-            recommendedStores.add({
-              'storeName': data['storeName'] ?? 'A Store',
-              'distance': distanceInMeters / 1000, // Convert to km
-              'found': foundIngredients,
-            });
+        if (!storeFound) {
+          _addAiMessage("I couldn't find a store named '${keywords.first}' on the map. 😔");
+        }
+      }
+
+      // --------------------------------------------------------
+      // INTENT: RECIPE or ITEM SEARCH (Scan Posts for Food)
+      // --------------------------------------------------------
+      else if (intent == 'RECIPE' || intent == 'ITEM_SEARCH') {
+        final postsSnapshot = await FirebaseFirestore.instance.collection('posts').get();
+
+        Map<String, List<String>> storeFoundItems = {};
+        Map<String, String> storeNames = {};
+
+        for (var doc in postsSnapshot.docs) {
+          final data = doc.data();
+          final String caption = (data['caption'] ?? '').toString().toLowerCase();
+          final List<String> tags = List<String>.from(data['tags'] ?? []).map((e) => e.toLowerCase()).toList();
+          final String ownerId = data['ownerId'] ?? '';
+          final String storeName = data['storeName'] ?? 'Unknown Store';
+
+          if (ownerId.isEmpty) continue;
+
+          storeNames[ownerId] = storeName;
+          if (!storeFoundItems.containsKey(ownerId)) storeFoundItems[ownerId] = [];
+
+          for (var req in keywords) {
+            if ((caption.contains(req) || tags.contains(req)) && !storeFoundItems[ownerId]!.contains(req)) {
+              storeFoundItems[ownerId]!.add(req);
+            }
           }
         }
-      }
 
-      // --- Sort & Output Results ---
-      if (recommendedStores.isEmpty) {
-        _addAiMessage("I couldn't find any nearby stores selling those specific ingredients right now. 😔");
-      } else {
-        recommendedStores.sort((a, b) => (a['distance'] as double).compareTo(b['distance'] as double));
+        storeFoundItems.removeWhere((key, value) => value.isEmpty);
 
-        String finalMessage = "Here are the best nearby options:\n\n";
-        for (var store in recommendedStores) {
-          finalMessage += "🏪 **${store['storeName']}** (${store['distance'].toStringAsFixed(1)} km away)\n";
-          // Capitalize the ingredients for display
-          final List<String> displayIngredients = (store['found'] as List<String>).map((e) => e[0].toUpperCase() + e.substring(1)).toList();
-          finalMessage += "Has: ${displayIngredients.join(', ')}\n\n";
+        List<Map<String, dynamic>> recommendedStores = [];
+
+        for (String ownerId in storeFoundItems.keys) {
+          final userDoc = await FirebaseFirestore.instance.collection('users').doc(ownerId).get();
+          if (userDoc.exists) {
+            final storeGeo = userDoc.data()?['storeLocation'] as GeoPoint?;
+            final storeType = userDoc.data()?['storeType'] ?? 'Store';
+
+            if (storeGeo != null) {
+              double distanceInMeters = Geolocator.distanceBetween(
+                currentPos.latitude, currentPos.longitude,
+                storeGeo.latitude, storeGeo.longitude,
+              );
+              recommendedStores.add({
+                'storeName': storeNames[ownerId],
+                'storeType': storeType,
+                'distance': distanceInMeters / 1000,
+                'found': storeFoundItems[ownerId],
+              });
+            }
+          }
         }
-        _addAiMessage(finalMessage);
+
+        if (recommendedStores.isEmpty) {
+          _addAiMessage("I couldn't find any nearby stores mentioning those items right now. 😔");
+        } else {
+          recommendedStores.sort((a, b) => (a['distance'] as double).compareTo(b['distance'] as double));
+
+          String finalMessage = "Here are the best nearby options:\n\n";
+          for (var store in recommendedStores) {
+            finalMessage += "🏪 **${store['storeName']}** (${store['storeType']}) - ${store['distance'].toStringAsFixed(1)} km away\n";
+            final List<String> displayIngredients = (store['found'] as List<String>).map((e) => e[0].toUpperCase() + e.substring(1)).toList();
+            finalMessage += "Has: ${displayIngredients.join(', ')}\n\n";
+          }
+          _addAiMessage(finalMessage);
+        }
       }
     } catch (e) {
-      _addAiMessage("Oops! I had trouble connecting to the store databases.");
+      debugPrint("DB Search Error: $e");
+      _addAiMessage("Oops! I had trouble scanning the store database. Try again in a minute.");
     }
   }
 
@@ -255,11 +308,10 @@ class _CustomerChatbotTabState extends State<CustomerChatbotTab> {
               padding: EdgeInsets.only(left: 24, bottom: 8),
               child: Align(
                 alignment: Alignment.centerLeft,
-                child: Text('AI Chef is thinking...', style: TextStyle(color: Colors.grey, fontStyle: FontStyle.italic)),
+                child: Text('AI Chef is scanning the network...', style: TextStyle(color: Colors.grey, fontStyle: FontStyle.italic)),
               ),
             ),
 
-          // --- Input Area ---
           Container(
             padding: const EdgeInsets.all(12),
             decoration: const BoxDecoration(color: Colors.white, boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, -2))]),
@@ -270,7 +322,7 @@ class _CustomerChatbotTabState extends State<CustomerChatbotTab> {
                     child: TextField(
                       controller: _messageController,
                       decoration: InputDecoration(
-                        hintText: 'Ask for a recipe...',
+                        hintText: 'Ask anything...',
                         filled: true,
                         fillColor: culinaeCream,
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(24), borderSide: BorderSide.none),

@@ -7,7 +7,7 @@ import 'package:image_picker/image_picker.dart';
 
 import 'owner_home.dart';
 import 'feed.dart';
-import 'main.dart'; // <-- Added this to route back to Login/AuthWrapper!
+import 'main.dart';
 
 // -- Main Profile Page --
 class ProfilePage extends StatefulWidget {
@@ -22,6 +22,10 @@ class _ProfilePageState extends State<ProfilePage> {
   String username = 'Loading...';
   String bio = '';
   String savedLocation = '';
+
+  // NEW: Connected live stats!
+  int followingCount = 0;
+  int followersCount = 0;
 
   List<DocumentSnapshot> savedPosts = [];
   bool _isLoading = true;
@@ -51,13 +55,17 @@ class _ProfilePageState extends State<ProfilePage> {
           bio = data['bio'] ?? '';
           savedLocation = data['savedLocation'] ?? '';
           profilePicUrl = data['profilePicUrl'] ?? '';
+
+          // FETCH THE LIVE COUNTS FROM FIREBASE ARRAYS
+          followingCount = (data['following'] ?? []).length;
+          followersCount = (data['followers'] ?? []).length;
+
           if (data['hasDualRole'] == true) _canSwitchToOwner = true;
         });
 
         List<dynamic> savedPostIds = data['savedPostIds'] ?? [];
         List<DocumentSnapshot> fetchedPosts = [];
 
-        // Fetch the FULL document for every post the user has saved
         for (String postId in savedPostIds) {
           final postDoc = await FirebaseFirestore.instance.collection('posts').doc(postId).get();
           if (postDoc.exists) {
@@ -103,7 +111,6 @@ class _ProfilePageState extends State<ProfilePage> {
         final uid = FirebaseAuth.instance.currentUser?.uid;
         if (uid != null) {
           await FirebaseFirestore.instance.collection('users').doc(uid).update({'role': 'owner'});
-          // FIXED THE INCEPTION NAVBAR: Added rootNavigator: true!
           if (mounted) Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(MaterialPageRoute(builder: (context) => const OwnerHomePage()), (route) => false);
         }
       }
@@ -111,7 +118,6 @@ class _ProfilePageState extends State<ProfilePage> {
       bool confirm = await _showConfirmationDialog('Log Out?', 'Are you sure you want to log out of Culinae?', 'Log Out', culinaeBrown);
       if (confirm) {
         await FirebaseAuth.instance.signOut();
-        // FIXED THE INCEPTION NAVBAR: Added rootNavigator: true!
         if (mounted) Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(MaterialPageRoute(builder: (context) => const AuthWrapper()), (route) => false);
       }
     } else if (value == 'delete') {
@@ -119,7 +125,6 @@ class _ProfilePageState extends State<ProfilePage> {
       if (confirm) {
         try {
           await FirebaseAuth.instance.currentUser?.delete();
-          // FIXED THE INCEPTION NAVBAR: Added rootNavigator: true!
           if (mounted) Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(MaterialPageRoute(builder: (context) => const AuthWrapper()), (route) => false);
         } catch (e) {
           if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Security alert: Please log out and log back in before deleting your account.')));
@@ -153,10 +158,10 @@ class _ProfilePageState extends State<ProfilePage> {
     final bool isProfileEmpty = profilePicUrl.isEmpty;
 
     return Scaffold(
-      backgroundColor: culinaeCream,
+      backgroundColor: Colors.white, // NEW: Instagram-style lighter background for the grid
       appBar: AppBar(
         title: Text(username, style: const TextStyle(fontWeight: FontWeight.bold, color: culinaeBrown)),
-        backgroundColor: culinaeCream,
+        backgroundColor: culinaeCream, // Keeps the top section Cream
         elevation: 0,
         actions: [
           PopupMenuButton<String>(
@@ -176,33 +181,52 @@ class _ProfilePageState extends State<ProfilePage> {
       body: SingleChildScrollView(
         child: Column(
           children: [
-            ProfileHeader(
-              profilePicUrl: profilePicUrl,
-              isProfileEmpty: isProfileEmpty,
-              username: username,
-              bio: bio,
-              savesCount: savedPosts.length,
-              onEditPressed: _openEditProfile,
+            // TOP SECTION: Cream Background
+            Container(
+              color: culinaeCream,
+              width: double.infinity,
+              child: ProfileHeader(
+                profilePicUrl: profilePicUrl,
+                isProfileEmpty: isProfileEmpty,
+                username: username,
+                bio: bio,
+                savesCount: savedPosts.length,
+                followingCount: followingCount, // Passes live data
+                followersCount: followersCount, // Passes live data
+                onEditPressed: _openEditProfile,
+              ),
             ),
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-              child: Row(
+
+            // BOTTOM SECTION: White Background (Instagram style)
+            Container(
+              width: double.infinity,
+              decoration: const BoxDecoration(
+                  color: Colors.white,
+                  border: Border(top: BorderSide(color: Colors.black12)) // Clean top border
+              ),
+              child: Column(
                 children: [
-                  Icon(Icons.bookmark_border, color: culinaeBrown),
-                  SizedBox(width: 8),
-                  Text('Saved Items from Stores', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: culinaeBrown)),
+                  // Centered Bookmark Icon
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 12.0),
+                    child: Center(
+                      child: Icon(Icons.bookmark_border, color: culinaeBrown, size: 28),
+                    ),
+                  ),
+
+                  // The Grid
+                  if (savedPosts.isNotEmpty)
+                    SavedPostsGrid(posts: savedPosts)
+                  else
+                    const Padding(
+                      padding: EdgeInsets.all(32.0),
+                      child: Center(
+                        child: Text('Follow stores to see and save their latest posts!', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey, fontSize: 16)),
+                      ),
+                    ),
                 ],
               ),
             ),
-            if (savedPosts.isNotEmpty)
-              SavedPostsGrid(posts: savedPosts)
-            else
-              const Padding(
-                padding: EdgeInsets.all(32.0),
-                child: Center(
-                  child: Text('Follow stores to see and save their latest posts!', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey, fontSize: 16)),
-                ),
-              ),
           ],
         ),
       ),
@@ -217,9 +241,21 @@ class ProfileHeader extends StatelessWidget {
   final String username;
   final String bio;
   final int savesCount;
+  final int followingCount;
+  final int followersCount;
   final VoidCallback onEditPressed;
 
-  const ProfileHeader({super.key, required this.profilePicUrl, required this.isProfileEmpty, required this.username, required this.bio, required this.savesCount, required this.onEditPressed});
+  const ProfileHeader({
+    super.key,
+    required this.profilePicUrl,
+    required this.isProfileEmpty,
+    required this.username,
+    required this.bio,
+    required this.savesCount,
+    required this.followingCount,
+    required this.followersCount,
+    required this.onEditPressed
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -242,9 +278,9 @@ class ProfileHeader extends StatelessWidget {
               const Expanded(child: SizedBox()),
               _buildStatColumn('Saves', savesCount),
               const SizedBox(width: 24),
-              _buildStatColumn('Stores', 0),
+              _buildStatColumn('Stores', followingCount), // Live Data!
               const SizedBox(width: 24),
-              _buildStatColumn('Community', 0),
+              _buildStatColumn('Community', followersCount), // Live Data!
               const SizedBox(width: 16),
             ],
           ),
@@ -307,7 +343,6 @@ class SavedPostsGrid extends StatelessWidget {
 
         return GestureDetector(
           onTap: () {
-            // This is the part that opens up the full PostCard when tapped!
             Navigator.push(
               context,
               MaterialPageRoute(

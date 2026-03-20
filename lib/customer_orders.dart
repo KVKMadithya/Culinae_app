@@ -32,7 +32,7 @@ class _CustomerOrdersTabState extends State<CustomerOrdersTab> {
     }
   }
 
-  // --- Real Firebase Order Function (Handles 1 or All) ---
+  // --- Real Firebase Order Function ---
   Future<void> _placeOrder(List<DocumentSnapshot> itemsToOrder) async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null || itemsToOrder.isEmpty) return;
@@ -82,25 +82,24 @@ class _CustomerOrdersTabState extends State<CustomerOrdersTab> {
     }
   }
 
-  // --- Payment Simulation ---
+  // --- UPGRADED: Instant Payment & Deletion ---
   Future<void> _payForOrder(String orderId) async {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => const Center(child: CircularProgressIndicator(color: culinaeBrown)),
-    );
+    try {
+      // 1. Instantly delete the order from Firebase
+      await FirebaseFirestore.instance.collection('orders').doc(orderId).delete();
 
-    await Future.delayed(const Duration(seconds: 2));
-
-    await FirebaseFirestore.instance.collection('orders').doc(orderId).update({
-      'status': 'paid'
-    });
-
-    if (mounted) {
-      Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Payment Successful! Meal is being prepared. 🍽️'), backgroundColor: Colors.green)
-      );
+      // 2. Show the Thank You notification
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Payment Successful! Thank you for your order! 🎉'),
+              backgroundColor: Colors.green,
+              duration: Duration(seconds: 3),
+            )
+        );
+      }
+    } catch (e) {
+      debugPrint("Error during payment: $e");
     }
   }
 
@@ -143,7 +142,7 @@ class _CustomerOrdersTabState extends State<CustomerOrdersTab> {
   }
 
   // =========================================================================
-  // VIEW 1: THE CART (Items ready to be ordered)
+  // VIEW 1: THE CART
   // =========================================================================
   Widget _buildCartView(String uid) {
     return StreamBuilder<QuerySnapshot>(
@@ -229,7 +228,6 @@ class _CustomerOrdersTabState extends State<CustomerOrdersTab> {
               ),
             ),
 
-            // Checkout ALL Button
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(color: Colors.white, boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, -5))]),
@@ -249,7 +247,7 @@ class _CustomerOrdersTabState extends State<CustomerOrdersTab> {
   }
 
   // =========================================================================
-  // VIEW 2: TRACK ORDERS (Sent to store, waiting for acceptance/payment)
+  // VIEW 2: TRACK ORDERS
   // =========================================================================
   Widget _buildTrackOrdersView(String uid) {
     return StreamBuilder<QuerySnapshot>(
@@ -308,7 +306,6 @@ class _CustomerOrdersTabState extends State<CustomerOrdersTab> {
 
                     const SizedBox(height: 20),
 
-                    // --- Dynamic Status Display ---
                     if (status == 'pending')
                       Container(
                         padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
@@ -337,12 +334,6 @@ class _CustomerOrdersTabState extends State<CustomerOrdersTab> {
                           decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(8)),
                           child: const Center(child: Text('Store declined order.', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold, fontSize: 16))),
                         )
-                      else if (status == 'paid')
-                          Container(
-                            width: double.infinity, padding: const EdgeInsets.all(14),
-                            decoration: BoxDecoration(color: Colors.green.shade50, borderRadius: BorderRadius.circular(8)),
-                            child: const Center(child: Text('Paid! Preparing your meal 🍳', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 16))),
-                          )
                   ],
                 ),
               ),

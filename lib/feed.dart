@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cached_network_image/cached_network_image.dart'; // <-- The speed package!
+import 'package:cached_network_image/cached_network_image.dart';
 import 'public_store_profile.dart';
 
 class FeedPage extends StatefulWidget {
@@ -14,70 +14,125 @@ class FeedPage extends StatefulWidget {
 class _FeedPageState extends State<FeedPage> {
   String _searchQuery = "";
   final TextEditingController _searchController = TextEditingController();
+
+  // --- NEW: Expanded Filters & Allergies ---
   String _selectedCategory = "";
+  List<String> _selectedAllergies = [];
 
   final List<String> _allCategories = [
-    'Vegan', 'Non-Vegan', 'Meat', 'Seafood', 'Dessert', 'Spicy',
-    'Gluten-Free', 'Lunch', 'Dinner', 'Appetizer', 'Coffee', 'Tea',
-    'Pastry', 'Breakfast', 'Cold Beverage', 'Hot Beverage', 'Sandwiches',
-    'Fresh Produce', 'Organic', 'Dairy', 'Snacks', 'Household', 'Spices'
+    'Appetizer', 'Bakery', 'Beverages', 'Breakfast', 'Coffee', 'Cold Beverage',
+    'Dairy', 'Dessert', 'Fast Food', 'Fresh Produce', 'Gluten-Free', 'Halal',
+    'Healthy', 'Hot Beverage', 'Household', 'Lunch', 'Main Course', 'Meat',
+    'Meat & Poultry', 'Non-Vegan', 'Organic', 'Pantry', 'Pastry', 'Sandwiches',
+    'Seafood', 'Snacks', 'Spices', 'Spicy', 'Tea', 'Vegan'
+  ];
+
+  final List<String> _allAllergies = [
+    'Peanuts', 'Tree Nuts', 'Dairy', 'Eggs', 'Wheat', 'Soy', 'Fish', 'Shellfish', 'Gluten'
   ];
 
   static const Color culinaeBrown = Color(0xFF4A1F1F);
   static const Color culinaeCream = Color(0xFFFFF3E3);
 
+  // --- FILTER MODAL ---
   void _showFilterModal() {
     showModalBottomSheet(
       context: context,
       backgroundColor: culinaeCream,
+      isScrollControlled: true, // Allows the modal to be taller
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (BuildContext context) {
         return StatefulBuilder(
             builder: (context, setModalState) {
-              return Padding(
+              return Container(
+                constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.8),
                 padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text('Filter by Category', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: culinaeBrown)),
-                        if (_selectedCategory.isNotEmpty)
-                          TextButton(
-                            onPressed: () {
-                              setModalState(() => _selectedCategory = "");
-                              setState(() => _selectedCategory = "");
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('Filters', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: culinaeBrown)),
+                          if (_selectedCategory.isNotEmpty || _selectedAllergies.isNotEmpty)
+                            TextButton(
+                              onPressed: () {
+                                setModalState(() {
+                                  _selectedCategory = "";
+                                  _selectedAllergies.clear();
+                                });
+                                setState(() {
+                                  _selectedCategory = "";
+                                  _selectedAllergies.clear();
+                                });
+                              },
+                              child: const Text('Clear All', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
+                            )
+                        ],
+                      ),
+                      const Divider(),
+
+                      // 1. CATEGORIES
+                      const SizedBox(height: 8),
+                      const Text('Show Category:', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: culinaeBrown)),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8.0, runSpacing: 4.0,
+                        children: _allCategories.map((category) {
+                          final isSelected = _selectedCategory == category;
+                          return FilterChip(
+                            label: Text(category),
+                            selected: isSelected,
+                            selectedColor: culinaeBrown.withValues(alpha: 0.2),
+                            checkmarkColor: culinaeBrown,
+                            labelStyle: TextStyle(
+                                color: isSelected ? culinaeBrown : Colors.black87,
+                                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal
+                            ),
+                            onSelected: (bool selected) {
+                              setModalState(() => _selectedCategory = selected ? category : "");
+                              setState(() => _selectedCategory = selected ? category : "");
                             },
-                            child: const Text('Clear', style: TextStyle(color: Colors.redAccent)),
-                          )
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Wrap(
-                      spacing: 8.0, runSpacing: 4.0,
-                      children: _allCategories.map((category) {
-                        final isSelected = _selectedCategory == category;
-                        return FilterChip(
-                          label: Text(category),
-                          selected: isSelected,
-                          selectedColor: culinaeBrown.withValues(alpha: 0.2),
-                          checkmarkColor: culinaeBrown,
-                          labelStyle: TextStyle(
-                              color: isSelected ? culinaeBrown : Colors.black87,
-                              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal
-                          ),
-                          onSelected: (bool selected) {
-                            setModalState(() => _selectedCategory = selected ? category : "");
-                            setState(() => _selectedCategory = selected ? category : "");
-                            Navigator.pop(context);
-                          },
-                        );
-                      }).toList(),
-                    ),
-                    const SizedBox(height: 20),
-                  ],
+                          );
+                        }).toList(),
+                      ),
+
+                      const SizedBox(height: 24),
+
+                      // 2. ALLERGIES
+                      const Text('Allergies (Hide these items):', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.red)),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8.0, runSpacing: 4.0,
+                        children: _allAllergies.map((allergy) {
+                          final isSelected = _selectedAllergies.contains(allergy);
+                          return FilterChip(
+                            label: Text(allergy),
+                            selected: isSelected,
+                            selectedColor: Colors.red.shade100,
+                            checkmarkColor: Colors.red,
+                            labelStyle: TextStyle(
+                                color: isSelected ? Colors.red.shade900 : Colors.black87,
+                                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal
+                            ),
+                            onSelected: (bool selected) {
+                              setModalState(() {
+                                if (selected) {
+                                  _selectedAllergies.add(allergy);
+                                } else {
+                                  _selectedAllergies.remove(allergy);
+                                }
+                              });
+                              setState(() {}); // Updates the main feed behind the modal
+                            },
+                          );
+                        }).toList(),
+                      ),
+                      const SizedBox(height: 40),
+                    ],
+                  ),
                 ),
               );
             }
@@ -88,6 +143,8 @@ class _FeedPageState extends State<FeedPage> {
 
   @override
   Widget build(BuildContext context) {
+    bool hasActiveFilters = _selectedCategory.isNotEmpty || _selectedAllergies.isNotEmpty;
+
     return Scaffold(
       backgroundColor: culinaeCream,
       appBar: AppBar(
@@ -107,7 +164,7 @@ class _FeedPageState extends State<FeedPage> {
                   controller: _searchController,
                   onChanged: (value) => setState(() => _searchQuery = value.trim().toLowerCase()),
                   decoration: InputDecoration(
-                    hintText: 'Search for stores...',
+                    hintText: 'Search food or people...',
                     hintStyle: const TextStyle(color: Colors.grey, fontSize: 14),
                     prefixIcon: const Icon(Icons.search, color: culinaeBrown, size: 20),
                     border: InputBorder.none,
@@ -118,6 +175,7 @@ class _FeedPageState extends State<FeedPage> {
                       onPressed: () {
                         _searchController.clear();
                         setState(() => _searchQuery = "");
+                        FocusScope.of(context).unfocus(); // Close keyboard
                       },
                     )
                         : null,
@@ -128,83 +186,207 @@ class _FeedPageState extends State<FeedPage> {
             const SizedBox(width: 8),
             Container(
               decoration: BoxDecoration(
-                  color: _selectedCategory.isNotEmpty ? culinaeBrown : Colors.white,
+                  color: hasActiveFilters ? culinaeBrown : Colors.white,
                   shape: BoxShape.circle,
                   border: Border.all(color: Colors.black12)
               ),
               child: IconButton(
-                icon: Icon(Icons.tune, color: _selectedCategory.isNotEmpty ? Colors.white : culinaeBrown, size: 22),
+                icon: Icon(hasActiveFilters ? Icons.filter_alt : Icons.tune, color: hasActiveFilters ? Colors.white : culinaeBrown, size: 22),
                 onPressed: _showFilterModal,
               ),
             )
           ],
         ),
       ),
-      body: _searchQuery.isNotEmpty ? _buildAccountSearchResults() : _buildPostFeed(),
+
+      // --- UNIFIED SEARCH & FEED VIEW ---
+      body: Column(
+        children: [
+          // If searching, show matching Users/Stores in a horizontal strip at the top!
+          if (_searchQuery.isNotEmpty)
+            _buildHorizontalUserSearch(),
+
+          // The Posts Feed takes up the rest of the screen
+          Expanded(child: _buildPostFeed()),
+        ],
+      ),
     );
   }
 
-  Widget _buildAccountSearchResults() {
+  // ==========================================================================
+  // HORIZONTAL USER SEARCH STRIP (Like Instagram Stories)
+  // ==========================================================================
+  Widget _buildHorizontalUserSearch() {
+    final myUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance.collection('users').snapshots(),
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator(color: culinaeBrown));
         if (!snapshot.hasData) return const SizedBox();
 
-        final matchingStores = snapshot.data!.docs.where((doc) {
+        List<dynamic> myFollowing = [];
+        try {
+          final myDoc = snapshot.data!.docs.firstWhere((doc) => doc.id == myUid);
+          myFollowing = (myDoc.data() as Map<String, dynamic>)['following'] ?? [];
+        } catch (e) {
+          // Ignore
+        }
+
+        final matchingUsers = snapshot.data!.docs.where((doc) {
+          if (doc.id == myUid) return false;
+
           final data = doc.data() as Map<String, dynamic>;
           final storeName = (data['storeName'] ?? '').toString().toLowerCase();
-          return storeName.isNotEmpty && storeName.contains(_searchQuery);
+          final userName = (data['name'] ?? data['username'] ?? '').toString().toLowerCase();
+
+          return (storeName.isNotEmpty && storeName.contains(_searchQuery)) ||
+              (userName.isNotEmpty && userName.contains(_searchQuery));
         }).toList();
 
-        if (matchingStores.isEmpty) return const Center(child: Text('No stores found.', style: TextStyle(color: Colors.grey)));
+        if (matchingUsers.isEmpty) return const SizedBox();
 
-        return ListView.builder(
-          itemCount: matchingStores.length,
-          itemBuilder: (context, index) {
-            final storeData = matchingStores[index].data() as Map<String, dynamic>;
-            final storeId = matchingStores[index].id;
-            final storeName = storeData['storeName'] ?? 'Store';
-            final profilePic = storeData['profilePicUrl'] ?? '';
-            final storeType = storeData['storeType'] ?? 'Store';
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+              child: Text('Accounts matching "$_searchQuery"', style: const TextStyle(fontWeight: FontWeight.bold, color: culinaeBrown)),
+            ),
+            SizedBox(
+              height: 155,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                itemCount: matchingUsers.length,
+                itemBuilder: (context, index) {
+                  final userData = matchingUsers[index].data() as Map<String, dynamic>;
+                  final targetId = matchingUsers[index].id;
+                  final role = userData['role'] ?? 'customer';
 
-            return ListTile(
-              leading: CircleAvatar(
-                backgroundColor: culinaeBrown,
-                // UPGRADED: Using CachedNetworkImageProvider for avatars
-                backgroundImage: profilePic.isNotEmpty ? CachedNetworkImageProvider(profilePic) : null,
-                child: profilePic.isEmpty ? const Icon(Icons.storefront, color: Colors.white) : null,
+                  final displayName = role == 'owner' ? (userData['storeName'] ?? 'Store') : (userData['name'] ?? userData['username'] ?? 'User');
+                  final profilePic = userData['profilePicUrl'] ?? '';
+                  final isFollowing = myFollowing.contains(targetId);
+
+                  return GestureDetector(
+                    onTap: () {
+                      if (role == 'owner') {
+                        Navigator.push(context, MaterialPageRoute(builder: (context) => PublicStoreProfilePage(ownerId: targetId, storeName: displayName)));
+                      }
+                    },
+                    child: Container(
+                      width: 130,
+                      margin: const EdgeInsets.symmetric(horizontal: 4),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.black12)),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          CircleAvatar(
+                            radius: 28,
+                            backgroundColor: culinaeBrown,
+                            backgroundImage: profilePic.isNotEmpty ? CachedNetworkImageProvider(profilePic) : null,
+                            child: profilePic.isEmpty ? Icon(role == 'owner' ? Icons.storefront : Icons.person, color: Colors.white) : null,
+                          ),
+                          const SizedBox(height: 8),
+                          Text(displayName, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: culinaeBrown)),
+                          const SizedBox(height: 8),
+
+                          // Tiny Follow Button
+                          SizedBox(
+                            height: 28, width: double.infinity,
+                            child: ElevatedButton(
+                              style: ElevatedButton.styleFrom(
+                                  backgroundColor: isFollowing ? Colors.grey.shade200 : Colors.blueAccent,
+                                  foregroundColor: isFollowing ? Colors.black87 : Colors.white,
+                                  elevation: 0, padding: EdgeInsets.zero,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))
+                              ),
+                              onPressed: () async {
+                                final myUserRef = FirebaseFirestore.instance.collection('users').doc(myUid);
+                                final targetUserRef = FirebaseFirestore.instance.collection('users').doc(targetId);
+                                if (isFollowing) {
+                                  await myUserRef.update({'following': FieldValue.arrayRemove([targetId])});
+                                  await targetUserRef.update({'followers': FieldValue.arrayRemove([myUid])});
+                                } else {
+                                  await myUserRef.update({'following': FieldValue.arrayUnion([targetId])});
+                                  await targetUserRef.update({'followers': FieldValue.arrayUnion([myUid])});
+                                }
+                              },
+                              child: Text(
+                                isFollowing ? (role == 'owner' ? 'Following' : 'Friends') : (role == 'owner' ? 'Follow' : 'Add Friend'),
+                                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                          )
+                        ],
+                      ),
+                    ),
+                  );
+                },
               ),
-              title: Text(storeName, style: const TextStyle(fontWeight: FontWeight.bold, color: culinaeBrown)),
-              subtitle: Text(storeType, style: const TextStyle(color: Colors.grey, fontSize: 12)),
-              onTap: () {
-                Navigator.push(context, MaterialPageRoute(builder: (context) => PublicStoreProfilePage(ownerId: storeId, storeName: storeName)));
-              },
-            );
-          },
+            ),
+            const SizedBox(height: 8),
+            const Divider(height: 1, thickness: 1),
+          ],
         );
       },
     );
   }
 
+  // ==========================================================================
+  // UNIFIED POST FEED (Handles Search, Categories, AND Allergies)
+  // ==========================================================================
   Widget _buildPostFeed() {
     return StreamBuilder<QuerySnapshot>(
-      // UPGRADED: Added .limit(20) so the app doesn't freeze downloading the whole database!
-      stream: FirebaseFirestore.instance.collection('posts').orderBy('timestamp', descending: true).limit(20).snapshots(),
+      // We pull the 100 most recent posts so client-side filtering has enough data to search through
+      stream: FirebaseFirestore.instance.collection('posts').orderBy('timestamp', descending: true).limit(100).snapshots(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator(color: culinaeBrown));
-        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) return const Center(child: Text('No posts yet! Check back later.', style: TextStyle(color: Colors.grey)));
+        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) return const Center(child: Text('No posts found!', style: TextStyle(color: Colors.grey)));
 
         final filteredPosts = snapshot.data!.docs.where((doc) {
           final data = doc.data() as Map<String, dynamic>;
-          final tags = List<String>.from(data['tags'] ?? []);
-          if (_selectedCategory.isNotEmpty && !tags.contains(_selectedCategory)) return false;
-          return true;
+          final tags = List<String>.from(data['tags'] ?? []).map((e) => e.toLowerCase()).toList();
+          final caption = (data['caption'] ?? '').toString().toLowerCase();
+
+          // 1. SEARCH QUERY FILTER
+          if (_searchQuery.isNotEmpty) {
+            bool matchesSearch = caption.contains(_searchQuery) || tags.contains(_searchQuery);
+            if (!matchesSearch) return false;
+          }
+
+          // 2. CATEGORY FILTER
+          if (_selectedCategory.isNotEmpty && !tags.contains(_selectedCategory.toLowerCase())) {
+            return false;
+          }
+
+          // 3. ALLERGY FILTER (Hide the post if it contains the allergy!)
+          if (_selectedAllergies.isNotEmpty) {
+            for (var allergy in _selectedAllergies) {
+              if (caption.contains(allergy.toLowerCase()) || tags.contains(allergy.toLowerCase())) {
+                return false; // DANGER: Post contains allergy. Hide it!
+              }
+            }
+          }
+
+          return true; // Passed all filters! Show it!
         }).toList();
 
-        if (filteredPosts.isEmpty) return Center(child: Text('No posts found for "$_selectedCategory".', style: const TextStyle(color: Colors.grey)));
+        if (filteredPosts.isEmpty) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(32.0),
+              child: Text(
+                  'No food posts found matching your search and safety filters.',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.grey, fontSize: 16)
+              ),
+            ),
+          );
+        }
 
         return ListView.builder(
+          padding: const EdgeInsets.only(top: 8),
           itemCount: filteredPosts.length,
           itemBuilder: (context, index) {
             return PostCard(postDoc: filteredPosts[index]);
@@ -252,7 +434,6 @@ class _PostCardState extends State<PostCard> {
     final myUserRef = FirebaseFirestore.instance.collection('users').doc(myUid);
     final storeUserRef = FirebaseFirestore.instance.collection('users').doc(storeOwnerId);
 
-    // This handles both following AND unfollowing perfectly!
     if (isFollowing) {
       await myUserRef.update({'following': FieldValue.arrayRemove([storeOwnerId])});
       await storeUserRef.update({'followers': FieldValue.arrayRemove([myUid])});
@@ -326,7 +507,6 @@ class _PostCardState extends State<PostCard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 1. HEADER
           StreamBuilder<DocumentSnapshot>(
               stream: FirebaseFirestore.instance.collection('users').doc(myUid).snapshots(),
               builder: (context, userSnapshot) {
@@ -342,7 +522,6 @@ class _PostCardState extends State<PostCard> {
                     onTap: () => _goToStoreProfile(ownerId, storeName),
                     child: CircleAvatar(
                       backgroundColor: culinaeBrown,
-                      // UPGRADED: Using CachedNetworkImageProvider for avatars
                       backgroundImage: profilePic.isNotEmpty ? CachedNetworkImageProvider(profilePic) : null,
                       child: profilePic.isEmpty ? const Icon(Icons.storefront, color: Colors.white, size: 20) : null,
                     ),
@@ -370,7 +549,6 @@ class _PostCardState extends State<PostCard> {
               }
           ),
 
-          // 2. IMAGE CAROUSEL
           if (imageUrls.isNotEmpty)
             Stack(
               alignment: Alignment.bottomCenter,
@@ -382,7 +560,6 @@ class _PostCardState extends State<PostCard> {
                     itemCount: imageUrls.length,
                     onPageChanged: (index) => setState(() => _currentImageIndex = index),
                     itemBuilder: (context, index) {
-                      // UPGRADED: Using CachedNetworkImage for lightning fast scrolling
                       return CachedNetworkImage(
                         imageUrl: imageUrls[index],
                         fit: BoxFit.cover,
@@ -412,7 +589,6 @@ class _PostCardState extends State<PostCard> {
               ],
             ),
 
-          // 3. ACTION BAR
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
             child: Row(
@@ -450,7 +626,6 @@ class _PostCardState extends State<PostCard> {
             ),
           ),
 
-          // 4. LIKES COUNT & NEW PRICE DISPLAY
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16.0),
             child: Row(
@@ -464,7 +639,6 @@ class _PostCardState extends State<PostCard> {
             ),
           ),
 
-          // 5. CAPTION & TAGS
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 6.0),
             child: RichText(

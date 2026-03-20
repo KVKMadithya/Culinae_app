@@ -182,18 +182,29 @@ class _OwnerOrdersTabState extends State<OwnerOrdersTab> {
                           ],
                         )
                       else if (status == 'accepted')
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(color: Colors.blue.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
-                          child: const Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.blue)),
-                              SizedBox(width: 12),
-                              Text('Waiting for customer payment...', style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)),
-                            ],
-                          ),
+                        Column(
+                          children: [
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(color: Colors.blue.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
+                              child: const Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.blue)),
+                                  SizedBox(width: 12),
+                                  Text('Waiting for customer payment...', style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            // THE NEW UNDO / CANCEL BUTTON
+                            TextButton.icon(
+                              onPressed: () => _updateOrderStatus(orderDoc.id, 'rejected'),
+                              icon: const Icon(Icons.cancel_outlined, color: Colors.redAccent, size: 20),
+                              label: const Text('Cancel Order', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
+                            )
+                          ],
                         )
                       else if (status == 'paid')
                           SizedBox(
@@ -216,14 +227,14 @@ class _OwnerOrdersTabState extends State<OwnerOrdersTab> {
                                 width: double.infinity,
                                 padding: const EdgeInsets.all(12),
                                 decoration: BoxDecoration(color: Colors.red.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
-                                child: const Center(child: Text('Order Declined ❌\n(Swipe left to clear)', textAlign: TextAlign.center, style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold))),
+                                child: const Center(child: Text('Order Cancelled / Declined ❌\n(Swipe left to clear)', textAlign: TextAlign.center, style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold))),
                               )
                     ],
                   ),
                 ),
               );
 
-              // NEW: If it's dismissible, wrap it in a Dismissible widget!
+              // If it's dismissible, wrap it in a Dismissible widget!
               if (isDismissible) {
                 return Dismissible(
                   key: Key(orderDoc.id),
@@ -245,7 +256,6 @@ class _OwnerOrdersTabState extends State<OwnerOrdersTab> {
                 );
               }
 
-              // If it's still pending or paid, return the normal un-swipeable card
               return orderCard;
             },
           );
