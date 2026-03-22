@@ -30,7 +30,6 @@ class _OwnerProfileTabState extends State<OwnerProfileTab> {
   int followersCount = 0;
   int totalLikes = 0;
 
-  // CHANGED: Now storing the full DocumentSnapshot so we can open the PostCard!
   final List<DocumentSnapshot> _storePosts = [];
   bool _isLoading = true;
 
@@ -91,15 +90,11 @@ class _OwnerProfileTabState extends State<OwnerProfileTab> {
         for (var doc in snapshot.docs) {
           final data = doc.data();
 
-          // 1. Tally up the likes for this post
           List<dynamic> postLikes = data['likes'] ?? [];
           calculatedLikes += postLikes.length;
-
-          // 2. Add the whole document to our list
           fetchedDocs.add(doc);
         }
 
-        // 3. Sort the posts locally (Newest at the top)
         fetchedDocs.sort((a, b) {
           final dataA = a.data() as Map<String, dynamic>;
           final dataB = b.data() as Map<String, dynamic>;
@@ -123,22 +118,112 @@ class _OwnerProfileTabState extends State<OwnerProfileTab> {
     }
   }
 
-  // --- Account Management Popups ---
+  // --- NEW: The Send Report Logic ---
+  Future<void> _showReportDialog() async {
+    final TextEditingController reportController = TextEditingController();
+    int wordCount = 0;
+
+    await showDialog(
+        context: context,
+        builder: (context) {
+          return StatefulBuilder(
+              builder: (context, setDialogState) {
+                return AlertDialog(
+                  backgroundColor: culinaeCream,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  title: const Row(
+                    children: [
+                      Icon(Icons.flag_outlined, color: Colors.orange),
+                      SizedBox(width: 8),
+                      Text('Send Report', style: TextStyle(color: culinaeBrown, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                  content: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Please describe the issue or feedback to the Admin team.', style: TextStyle(fontSize: 14)),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: reportController,
+                        maxLines: 5,
+                        onChanged: (text) {
+                          int currentWords = text.trim().isEmpty ? 0 : text.trim().split(RegExp(r'\s+')).length;
+                          setDialogState(() {
+                            wordCount = currentWords;
+                          });
+                        },
+                        decoration: InputDecoration(
+                          hintText: 'Type your report here...',
+                          filled: true,
+                          fillColor: Colors.white,
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                          counterText: '$wordCount / 150 words',
+                          counterStyle: TextStyle(
+                              color: wordCount > 150 ? Colors.red : Colors.grey,
+                              fontWeight: wordCount > 150 ? FontWeight.bold : FontWeight.normal
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  actions: [
+                    TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel', style: TextStyle(color: Colors.grey))),
+                    ElevatedButton(
+                      onPressed: (wordCount == 0 || wordCount > 150) ? null : () async {
+                        final uid = FirebaseAuth.instance.currentUser?.uid;
+                        if (uid != null) {
+                          try {
+                            await FirebaseFirestore.instance.collection('reports').add({
+                              'reportedBy': storeName, // Identifies as the Store Owner
+                              'userId': uid,
+                              'reason': reportController.text.trim(),
+                              'type': 'Store Owner Feedback', // Categorized for the Admin
+                              'status': 'pending',
+                              'timestamp': FieldValue.serverTimestamp(),
+                            });
+
+                            if (context.mounted) {
+                              Navigator.pop(context);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('Successfully reported ✔️'), backgroundColor: Colors.green, duration: Duration(seconds: 2))
+                              );
+                            }
+                          } catch (e) {
+                            debugPrint("Error sending report: $e");
+                          }
+                        }
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: culinaeBrown,
+                        disabledBackgroundColor: Colors.grey.shade300,
+                      ),
+                      child: const Text('Send', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                    ),
+                  ],
+                );
+              }
+          );
+        }
+    );
+  }
+
   // --- Account Management Popups ---
   Future<void> _handleMenuSelection(String value) async {
     if (value == 'logout') {
       bool confirm = await _showConfirmationDialog('Log Out?', 'Are you sure you want to log out?', 'Log Out', culinaeBrown);
       if (confirm) {
         await FirebaseAuth.instance.signOut();
-        // FIXED: Added rootNavigator: true
         if (mounted) Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(MaterialPageRoute(builder: (context) => const AuthWrapper()), (route) => false);
       }
+    } else if (value == 'report') {
+      // Trigger the Report pop-up!
+      _showReportDialog();
     } else if (value == 'delete') {
       bool confirm = await _showConfirmationDialog('Delete Account?', 'WARNING: This action cannot be undone.', 'Delete Forever', Colors.red);
       if (confirm) {
         try {
           await FirebaseAuth.instance.currentUser?.delete();
-          // FIXED: Added rootNavigator: true
           if (mounted) Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(MaterialPageRoute(builder: (context) => const AuthWrapper()), (route) => false);
         } catch (e) {
           if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Security alert: Please log out and log back in before deleting.')));
@@ -203,6 +288,10 @@ class _OwnerProfileTabState extends State<OwnerProfileTab> {
             onSelected: _handleMenuSelection,
             itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
               const PopupMenuItem<String>(value: 'logout', child: Row(children: [Icon(Icons.logout, color: culinaeBrown), SizedBox(width: 8), Text('Logout')])),
+
+              // NEW: Send Report Option!
+              const PopupMenuItem<String>(value: 'report', child: Row(children: [Icon(Icons.flag_outlined, color: Colors.orange), SizedBox(width: 8), Text('Send Report')])),
+
               const PopupMenuItem<String>(value: 'delete', child: Row(children: [Icon(Icons.delete_forever, color: Colors.red), SizedBox(width: 8), Text('Delete Account', style: TextStyle(color: Colors.red))])),
             ],
           ),

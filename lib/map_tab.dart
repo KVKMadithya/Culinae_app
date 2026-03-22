@@ -8,14 +8,14 @@ import 'package:http/http.dart' as http;
 import 'package:flutter_polyline_points/flutter_polyline_points.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'public_store_profile.dart'; // To open menus!
 
 const Color culinaeBrown = Color(0xFF4A1F1F);
 const Color culinaeCream = Color(0xFFFFF3E3);
 
-// ⚠️ YOUR GOOGLE MAPS API KEY
-const String googleAPIKey = "AIzaSyDSancgtsmUfagoV1aW20WXv1HfvsdwAF8";
+//GOOGLE MAPS API KEY
+final String googleAPIKey = dotenv.env['GOOGLE_MAPS_API_KEY'] ?? '';
 
 const LatLng defaultLocation = LatLng(6.9271, 79.8612); // Colombo
 
@@ -42,7 +42,6 @@ class _OwnerMapTabState extends State<OwnerMapTab> {
   GoogleMapController? _mapController;
   LatLng? _storeLocation;
 
-  // NEW: Search & Manual Mode States
   final TextEditingController _searchController = TextEditingController();
   List<dynamic> _placeList = [];
   bool _isManualMode = false;
@@ -64,7 +63,6 @@ class _OwnerMapTabState extends State<OwnerMapTab> {
     }
   }
 
-  // --- Google Places Autocomplete ---
   void _getSuggestions(String input) async {
     if (input.isEmpty) {
       setState(() => _placeList = []);
@@ -72,12 +70,21 @@ class _OwnerMapTabState extends State<OwnerMapTab> {
     }
     String request = 'https://maps.googleapis.com/maps/api/place/autocomplete/json?input=$input&key=$googleAPIKey&components=country:lk';
     var response = await http.get(Uri.parse(request));
+
     if (response.statusCode == 200) {
-      setState(() => _placeList = json.decode(response.body)['predictions']);
+      var data = json.decode(response.body);
+
+      // 🚨 CATCH GOOGLE'S REJECTION LETTER
+      if (data['status'] != 'OK' && data['status'] != 'ZERO_RESULTS') {
+        print("🚨 PLACES API ERROR: ${data['status']} - ${data['error_message']}");
+      }
+
+      setState(() => _placeList = data['predictions'] ?? []);
+    } else {
+      print("🚨 HTTP ERROR: ${response.statusCode}");
     }
   }
 
-  // --- Navigate to Searched Address ---
   Future<void> _selectPlaceAndNavigate(String address) async {
     setState(() {
       _searchController.text = address;
@@ -120,7 +127,6 @@ class _OwnerMapTabState extends State<OwnerMapTab> {
             initialCameraPosition: CameraPosition(target: _storeLocation ?? defaultLocation, zoom: 14),
             onMapCreated: (controller) => _mapController = controller,
             onTap: (location) {
-              // Only allow tapping to drop a pin if they are in Manual Mode
               if (_isManualMode) {
                 setState(() => _storeLocation = location);
               }
@@ -128,7 +134,6 @@ class _OwnerMapTabState extends State<OwnerMapTab> {
             markers: _storeLocation != null ? {Marker(markerId: const MarkerId('store'), position: _storeLocation!, icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed))} : {},
           ),
 
-          // --- THE NEW SEARCH UI ---
           if (!_isManualMode)
             Positioned(
               top: 16, left: 16, right: 16,
@@ -172,14 +177,13 @@ class _OwnerMapTabState extends State<OwnerMapTab> {
                     ),
                   const SizedBox(height: 12),
 
-                  // The "Or Pinpoint Manually" Button
                   ElevatedButton.icon(
                     onPressed: () {
                       setState(() {
                         _isManualMode = true;
-                        _placeList = []; // Clear suggestions
+                        _placeList = [];
                       });
-                      FocusScope.of(context).unfocus(); // Dismiss keyboard
+                      FocusScope.of(context).unfocus();
                     },
                     icon: const Icon(Icons.touch_app, color: culinaeBrown),
                     label: const Text('Or pin-point manually on map', style: TextStyle(color: culinaeBrown, fontWeight: FontWeight.bold)),
@@ -193,7 +197,6 @@ class _OwnerMapTabState extends State<OwnerMapTab> {
               ),
             )
           else
-          // --- MANUAL MODE UI ---
             Positioned(
               top: 20, left: 20, right: 20,
               child: Card(
@@ -247,16 +250,15 @@ class _CustomerMapTabState extends State<CustomerMapTab> {
   Set<Polyline> _polylines = {};
   LatLng? _currentPosition;
   LatLng? _selectedDestination;
-  Set<Marker> _markers = {}; // Will hold both Search Results AND Firebase Stores
+  Set<Marker> _markers = {};
 
   @override
   void initState() {
     super.initState();
     _getUserLocation();
-    _fetchStoreLocations(); // Pulls the stores from Firebase!
+    _fetchStoreLocations();
   }
 
-  // --- Fetch Stores from Firebase ---
   void _fetchStoreLocations() {
     FirebaseFirestore.instance.collection('users').where('role', isEqualTo: 'owner').snapshots().listen((snapshot) {
       Set<Marker> storeMarkers = {};
@@ -268,14 +270,13 @@ class _CustomerMapTabState extends State<CustomerMapTab> {
               Marker(
                 markerId: MarkerId(doc.id),
                 position: LatLng(geo.latitude, geo.longitude),
-                icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange), // Stores are Orange!
+                icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange),
                 onTap: () => _showStorePopup(doc.id, data),
               )
           );
         }
       }
       setState(() {
-        // Keep the search marker if it exists, but update all the store markers
         _markers.removeWhere((m) => m.markerId.value != 'searched_location');
         _markers.addAll(storeMarkers);
       });
@@ -283,6 +284,10 @@ class _CustomerMapTabState extends State<CustomerMapTab> {
   }
 
   void _showStorePopup(String storeId, Map<String, dynamic> data) {
+    final String profilePic = data['profilePicUrl']?.toString() ?? '';
+    final String storeName = data['storeName']?.toString() ?? 'Unknown Store';
+    final String storeType = data['storeType']?.toString() ?? 'Restaurant';
+
     showModalBottomSheet(
         context: context,
         shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
@@ -292,10 +297,15 @@ class _CustomerMapTabState extends State<CustomerMapTab> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                CircleAvatar(radius: 30, backgroundImage: data['profilePicUrl'] != '' ? NetworkImage(data['profilePicUrl']) : null, child: data['profilePicUrl'] == '' ? const Icon(Icons.store) : null),
+                CircleAvatar(
+                    radius: 30,
+                    backgroundColor: culinaeBrown.withValues(alpha: 0.2),
+                    backgroundImage: profilePic.isNotEmpty ? NetworkImage(profilePic) : null,
+                    child: profilePic.isEmpty ? const Icon(Icons.store, color: culinaeBrown) : null
+                ),
                 const SizedBox(height: 12),
-                Text(data['storeName'] ?? 'Store', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: culinaeBrown)),
-                Text(data['storeType'] ?? 'Restaurant', style: const TextStyle(color: Colors.grey)),
+                Text(storeName, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: culinaeBrown)),
+                Text(storeType, style: const TextStyle(color: Colors.grey)),
                 const SizedBox(height: 20),
                 SizedBox(
                   width: double.infinity, height: 50,
@@ -303,7 +313,7 @@ class _CustomerMapTabState extends State<CustomerMapTab> {
                     style: ElevatedButton.styleFrom(backgroundColor: culinaeBrown, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
                     onPressed: () {
                       Navigator.pop(context);
-                      Navigator.push(context, MaterialPageRoute(builder: (_) => PublicStoreProfilePage(ownerId: storeId, storeName: data['storeName'])));
+                      Navigator.push(context, MaterialPageRoute(builder: (_) => PublicStoreProfilePage(ownerId: storeId, storeName: storeName)));
                     },
                     child: const Text('VIEW STORE MENU', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                   ),
@@ -315,7 +325,6 @@ class _CustomerMapTabState extends State<CustomerMapTab> {
     );
   }
 
-  // --- GPS Logic ---
   Future<void> _getUserLocation() async {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) return;
@@ -334,7 +343,6 @@ class _CustomerMapTabState extends State<CustomerMapTab> {
     mapController.animateCamera(CameraUpdate.newLatLngZoom(_currentPosition!, 14.0));
   }
 
-  // --- Google Places Autocomplete ---
   void _getSuggestions(String input) async {
     if (input.isEmpty) {
       setState(() => _placeList = []);
@@ -342,8 +350,18 @@ class _CustomerMapTabState extends State<CustomerMapTab> {
     }
     String request = 'https://maps.googleapis.com/maps/api/place/autocomplete/json?input=$input&key=$googleAPIKey&components=country:lk';
     var response = await http.get(Uri.parse(request));
+
     if (response.statusCode == 200) {
-      setState(() => _placeList = json.decode(response.body)['predictions']);
+      var data = json.decode(response.body);
+
+      // 🚨 CATCH GOOGLE'S REJECTION LETTER
+      if (data['status'] != 'OK' && data['status'] != 'ZERO_RESULTS') {
+        print("🚨 PLACES API ERROR: ${data['status']} - ${data['error_message']}");
+      }
+
+      setState(() => _placeList = data['predictions'] ?? []);
+    } else {
+      print("🚨 HTTP ERROR: ${response.statusCode}");
     }
   }
 
@@ -365,7 +383,7 @@ class _CustomerMapTabState extends State<CustomerMapTab> {
             Marker(
               markerId: const MarkerId('searched_location'),
               position: _selectedDestination!,
-              icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed), // Search results are Red!
+              icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
             ),
           );
         });
@@ -376,7 +394,7 @@ class _CustomerMapTabState extends State<CustomerMapTab> {
     }
   }
 
-  // --- Draw Route ---
+  // --- UPDATED SAFETY NET FOR DIRECTIONS ---
   Future<void> _getDirections() async {
     if (_currentPosition == null || _selectedDestination == null) return;
 
@@ -408,6 +426,17 @@ class _CustomerMapTabState extends State<CustomerMapTab> {
         northeast: LatLng(max(_currentPosition!.latitude, _selectedDestination!.latitude), max(_currentPosition!.longitude, _selectedDestination!.longitude)),
       );
       mapController.animateCamera(CameraUpdate.newLatLngBounds(bounds, 60));
+    } else {
+      // 🚨 CATCH ROUTING ERRORS
+      print("🚨 ROUTES API ERROR: ${result.errorMessage}");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Could not route: ${result.errorMessage ?? "Check Google Cloud APIs/Billing."}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 

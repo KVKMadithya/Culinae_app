@@ -1,17 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart'; // <-- Added to read the database!
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart'; // <-- 1. NEW: Imported the dotenv package!
 
 import 'firebase_options.dart';
 import 'splash_screen.dart';
 import 'customer_home.dart';
-import 'owner_home.dart'; // <-- Added!
-import 'owner_setup_page.dart'; // <-- Added!
+import 'owner_home.dart';
+import 'owner_setup_page.dart';
 import 'role_selection_page.dart';
+import 'admin_home.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // --- 2. NEW: Unlock the vault before the app starts! ---
+  await dotenv.load(fileName: ".env");
 
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
@@ -33,7 +38,6 @@ class CulinaeApp extends StatelessWidget {
         scaffoldBackgroundColor: const Color(0xFF4A1F1F),
         fontFamily: 'Roboto',
       ),
-      // We keep your splash screen as the very first thing the app shows!
       home: const SplashScreen(),
     );
   }
@@ -80,8 +84,21 @@ class AuthWrapper extends StatelessWidget {
               final data = userSnapshot.data!.data() as Map<String, dynamic>;
               final role = data['role'];
 
+              // --- THE BAN CHECK ---
+              final bool isBanned = data['isBanned'] == true;
+              if (isBanned) {
+                // If they open the app and are banned, forcefully log them out in the background
+                // and kick them back to the selection page!
+                FirebaseAuth.instance.signOut();
+                return const RoleSelectionPage();
+              }
+
+              // --- THE ADMIN ROUTE ---
+              if (role == 'admin') {
+                return const AdminHomePage();
+              }
               // If Customer -> Go to Customer App
-              if (role == 'customer') {
+              else if (role == 'customer') {
                 return const CustomerHomePage();
               }
               // If Owner -> Check if setup is done, then route to the right page!

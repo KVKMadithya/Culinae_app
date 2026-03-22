@@ -23,7 +23,6 @@ class _ProfilePageState extends State<ProfilePage> {
   String bio = '';
   String savedLocation = '';
 
-  // NEW: Connected live stats!
   int followingCount = 0;
   int followersCount = 0;
 
@@ -56,7 +55,6 @@ class _ProfilePageState extends State<ProfilePage> {
           savedLocation = data['savedLocation'] ?? '';
           profilePicUrl = data['profilePicUrl'] ?? '';
 
-          // FETCH THE LIVE COUNTS FROM FIREBASE ARRAYS
           followingCount = (data['following'] ?? []).length;
           followersCount = (data['followers'] ?? []).length;
 
@@ -103,6 +101,99 @@ class _ProfilePageState extends State<ProfilePage> {
     ) ?? false;
   }
 
+  // --- NEW: The Send Report Logic ---
+  Future<void> _showReportDialog() async {
+    final TextEditingController reportController = TextEditingController();
+    int wordCount = 0;
+
+    await showDialog(
+        context: context,
+        builder: (context) {
+          return StatefulBuilder(
+              builder: (context, setDialogState) {
+                return AlertDialog(
+                  backgroundColor: culinaeCream,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  title: const Row(
+                    children: [
+                      Icon(Icons.flag_outlined, color: Colors.orange),
+                      SizedBox(width: 8),
+                      Text('Send Report', style: TextStyle(color: culinaeBrown, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                  content: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Please describe the issue or feedback to the Admin team.', style: TextStyle(fontSize: 14)),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: reportController,
+                        maxLines: 5,
+                        onChanged: (text) {
+                          // Live Word Counter Logic
+                          int currentWords = text.trim().isEmpty ? 0 : text.trim().split(RegExp(r'\s+')).length;
+                          setDialogState(() {
+                            wordCount = currentWords;
+                          });
+                        },
+                        decoration: InputDecoration(
+                          hintText: 'Type your report here...',
+                          filled: true,
+                          fillColor: Colors.white,
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                          counterText: '$wordCount / 150 words',
+                          counterStyle: TextStyle(
+                              color: wordCount > 150 ? Colors.red : Colors.grey,
+                              fontWeight: wordCount > 150 ? FontWeight.bold : FontWeight.normal
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  actions: [
+                    TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel', style: TextStyle(color: Colors.grey))),
+                    ElevatedButton(
+                      // Disable the button if empty OR if it exceeds 150 words!
+                      onPressed: (wordCount == 0 || wordCount > 150) ? null : () async {
+                        final uid = FirebaseAuth.instance.currentUser?.uid;
+                        if (uid != null) {
+                          try {
+                            // Send the payload to the Admin dashboard!
+                            await FirebaseFirestore.instance.collection('reports').add({
+                              'reportedBy': username,
+                              'userId': uid,
+                              'reason': reportController.text.trim(),
+                              'type': 'Customer Feedback',
+                              'status': 'pending',
+                              'timestamp': FieldValue.serverTimestamp(),
+                            });
+
+                            if (context.mounted) {
+                              Navigator.pop(context); // Close dialog
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('Successfully reported ✔️'), backgroundColor: Colors.green, duration: Duration(seconds: 2))
+                              );
+                            }
+                          } catch (e) {
+                            debugPrint("Error sending report: $e");
+                          }
+                        }
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: culinaeBrown,
+                        disabledBackgroundColor: Colors.grey.shade300,
+                      ),
+                      child: const Text('Send', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                    ),
+                  ],
+                );
+              }
+          );
+        }
+    );
+  }
+
   // --- Logic for Account Management ---
   Future<void> _handleMenuSelection(String value) async {
     if (value == 'switch') {
@@ -120,6 +211,9 @@ class _ProfilePageState extends State<ProfilePage> {
         await FirebaseAuth.instance.signOut();
         if (mounted) Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(MaterialPageRoute(builder: (context) => const AuthWrapper()), (route) => false);
       }
+    } else if (value == 'report') {
+      // Trigger the new Report pop-up!
+      _showReportDialog();
     } else if (value == 'delete') {
       bool confirm = await _showConfirmationDialog('Delete Account?', 'WARNING: This action cannot be undone.', 'Delete Forever', Colors.red);
       if (confirm) {
@@ -158,10 +252,10 @@ class _ProfilePageState extends State<ProfilePage> {
     final bool isProfileEmpty = profilePicUrl.isEmpty;
 
     return Scaffold(
-      backgroundColor: Colors.white, // NEW: Instagram-style lighter background for the grid
+      backgroundColor: Colors.white,
       appBar: AppBar(
         title: Text(username, style: const TextStyle(fontWeight: FontWeight.bold, color: culinaeBrown)),
-        backgroundColor: culinaeCream, // Keeps the top section Cream
+        backgroundColor: culinaeCream,
         elevation: 0,
         actions: [
           PopupMenuButton<String>(
@@ -173,6 +267,10 @@ class _ProfilePageState extends State<ProfilePage> {
                 const PopupMenuDivider(),
               ],
               const PopupMenuItem<String>(value: 'logout', child: Row(children: [Icon(Icons.logout, color: culinaeBrown), SizedBox(width: 8), Text('Logout')])),
+
+              // NEW: The Send Report Option!
+              const PopupMenuItem<String>(value: 'report', child: Row(children: [Icon(Icons.flag_outlined, color: Colors.orange), SizedBox(width: 8), Text('Send Report')])),
+
               const PopupMenuItem<String>(value: 'delete', child: Row(children: [Icon(Icons.delete_forever, color: Colors.red), SizedBox(width: 8), Text('Delete Account', style: TextStyle(color: Colors.red))])),
             ],
           ),
@@ -181,7 +279,6 @@ class _ProfilePageState extends State<ProfilePage> {
       body: SingleChildScrollView(
         child: Column(
           children: [
-            // TOP SECTION: Cream Background
             Container(
               color: culinaeCream,
               width: double.infinity,
@@ -191,30 +288,25 @@ class _ProfilePageState extends State<ProfilePage> {
                 username: username,
                 bio: bio,
                 savesCount: savedPosts.length,
-                followingCount: followingCount, // Passes live data
-                followersCount: followersCount, // Passes live data
+                followingCount: followingCount,
+                followersCount: followersCount,
                 onEditPressed: _openEditProfile,
               ),
             ),
-
-            // BOTTOM SECTION: White Background (Instagram style)
             Container(
               width: double.infinity,
               decoration: const BoxDecoration(
                   color: Colors.white,
-                  border: Border(top: BorderSide(color: Colors.black12)) // Clean top border
+                  border: Border(top: BorderSide(color: Colors.black12))
               ),
               child: Column(
                 children: [
-                  // Centered Bookmark Icon
                   const Padding(
                     padding: EdgeInsets.symmetric(vertical: 12.0),
                     child: Center(
                       child: Icon(Icons.bookmark_border, color: culinaeBrown, size: 28),
                     ),
                   ),
-
-                  // The Grid
                   if (savedPosts.isNotEmpty)
                     SavedPostsGrid(posts: savedPosts)
                   else
@@ -278,9 +370,9 @@ class ProfileHeader extends StatelessWidget {
               const Expanded(child: SizedBox()),
               _buildStatColumn('Saves', savesCount),
               const SizedBox(width: 24),
-              _buildStatColumn('Stores', followingCount), // Live Data!
+              _buildStatColumn('Stores', followingCount),
               const SizedBox(width: 24),
-              _buildStatColumn('Community', followersCount), // Live Data!
+              _buildStatColumn('Community', followersCount),
               const SizedBox(width: 16),
             ],
           ),

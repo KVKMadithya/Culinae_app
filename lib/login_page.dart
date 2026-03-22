@@ -3,7 +3,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'customer_home.dart';
-import 'owner_home.dart'; // <-- Added this back!
+import 'owner_home.dart';
+import 'admin_home.dart';
 import 'signin_page.dart';
 import 'owner_setup_page.dart';
 
@@ -27,67 +28,71 @@ class _LoginPageState extends State<LoginPage> {
 
   final _auth = FirebaseAuth.instance;
 
+  // ==========================================================
+  // 📧 STANDARD EMAIL & PASSWORD LOGIN
+  // ==========================================================
   Future<void> _login() async {
     setState(() => _isLoading = true);
 
     try {
-      // 1️⃣ Firebase Auth login
       final userCredential = await _auth.signInWithEmailAndPassword(
         email: _emailController.text.trim(),
         password: _passwordController.text.trim(),
       );
 
-      final uid = userCredential.user!.uid;
-
-      // 2️⃣ Fetch user data from Firestore
-      final doc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(uid)
-          .get();
-
-      if (!doc.exists) {
-        throw Exception('User data not found');
-      }
-
-      // Safely grab the data
-      final data = doc.data() as Map<String, dynamic>;
-      final role = data['role'];
-
-      // 3️⃣ Redirect based on role AND setup status
-      if (!mounted) return;
-
-      if (role == 'customer') {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const CustomerHomePage()),
-        );
-      } else if (role == 'owner') {
-        // Check if they already finished setup
-        final bool isSetupComplete = data.containsKey('isSetupComplete') && data['isSetupComplete'] == true;
-
-        if (isSetupComplete) {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const OwnerHomePage()),
-          );
-        } else {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const OwnerSetupPage()),
-          );
-        }
-      } else {
-        throw Exception('Invalid user role');
-      }
+      await _routeUser(userCredential.user!.uid);
 
     } on FirebaseAuthException catch (e) {
       _showError(e.message ?? 'Login failed');
     } catch (e) {
       _showError(e.toString());
     } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  // ==========================================================
+  // 🚦 THE TRAFFIC COP & SECURITY CHECK (Routing Logic)
+  // ==========================================================
+  Future<void> _routeUser(String uid) async {
+    final doc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+
+    if (!doc.exists) throw Exception('User data not found in database.');
+
+    final data = doc.data() as Map<String, dynamic>;
+    final role = data['role'];
+
+    // --- NEW: THE BAN CHECK ---
+    final isBanned = data['isBanned'] == true;
+
+    if (!mounted) return;
+
+    // 🛑 If the user is banned, kick them out immediately!
+    if (isBanned) {
+      await _auth.signOut(); // Force log them out of Firebase
+      _showError('This account has been suspended by an Administrator.');
+      return; // Stop the code here so they don't get routed into the app
+    }
+
+    // --- THE ADMIN ROUTE ---
+    if (role == 'admin') {
+      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const AdminHomePage()));
+    }
+    // --- CUSTOMER ROUTE ---
+    else if (role == 'customer') {
+      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const CustomerHomePage()));
+    }
+    // --- OWNER ROUTE ---
+    else if (role == 'owner') {
+      final bool isSetupComplete = data.containsKey('isSetupComplete') && data['isSetupComplete'] == true;
+      if (isSetupComplete) {
+        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const OwnerHomePage()));
+      } else {
+        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const OwnerSetupPage()));
       }
+    }
+    else {
+      throw Exception('Invalid user role assigned.');
     }
   }
 
@@ -100,9 +105,11 @@ class _LoginPageState extends State<LoginPage> {
   @override
   Widget build(BuildContext context) {
     final isOwner = widget.role == UserRole.owner;
+    const Color culinaeBrown = Color(0xFF4A1F1F);
+    const Color culinaeCream = Color(0xFFFFF3E3);
 
     return Scaffold(
-      backgroundColor: const Color(0xFF4A1F1F),
+      backgroundColor: culinaeBrown,
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
@@ -119,6 +126,7 @@ class _LoginPageState extends State<LoginPage> {
                 style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.white),
               ),
               const SizedBox(height: 40),
+
               _inputField(controller: _emailController, hint: 'Email', icon: Icons.email_outlined),
               const SizedBox(height: 16),
               _inputField(
@@ -132,20 +140,23 @@ class _LoginPageState extends State<LoginPage> {
                 ),
               ),
               const SizedBox(height: 24),
+
+              // Standard Login Button
               SizedBox(
                 width: double.infinity,
                 height: 52,
                 child: ElevatedButton(
                   onPressed: _isLoading ? null : _login,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFFFF3E3),
+                    backgroundColor: culinaeCream,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                   ),
                   child: _isLoading
-                      ? const CircularProgressIndicator()
-                      : const Text('Log In', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF4A1F1F))),
+                      ? const CircularProgressIndicator(color: culinaeBrown)
+                      : const Text('Log In', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: culinaeBrown)),
                 ),
               ),
+
               const SizedBox(height: 30),
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -153,7 +164,7 @@ class _LoginPageState extends State<LoginPage> {
                   const Text("Don't have an account?", style: TextStyle(color: Colors.white70)),
                   TextButton(
                     onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => SignInPage(role: isOwner ? 'owner' : 'customer'))),
-                    child: const Text('Sign up', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFFFF3E3))),
+                    child: const Text('Sign up', style: TextStyle(fontWeight: FontWeight.bold, color: culinaeCream)),
                   ),
                 ],
               ),

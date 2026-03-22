@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 class CustomerChatbotTab extends StatefulWidget {
   const CustomerChatbotTab({super.key});
@@ -42,7 +43,7 @@ class _CustomerChatbotTabState extends State<CustomerChatbotTab> {
 
   // --- 🤖 THE INTENT-DRIVEN AI ENGINE ---
   Future<void> _analyzeWithGeminiAndSearch(String userQuery) async {
-    const apiKey = 'AIzaSyBr48QiS3hoVFUvgXJWF1xGJm8BaBt1Nv4';
+    final String apiKey = dotenv.env['GEMINI_API_KEY'] ?? '';
     final model = GenerativeModel(model: 'gemini-2.5-flash', apiKey: apiKey);
 
     // NEW: We are teaching the AI to categorize the user's intent!
@@ -266,84 +267,94 @@ class _CustomerChatbotTabState extends State<CustomerChatbotTab> {
         ),
         centerTitle: true,
       ),
-      body: Column(
-        children: [
-          Expanded(
-            child: ListView.builder(
-              controller: _scrollController,
-              padding: const EdgeInsets.all(16),
-              itemCount: _messages.length,
-              itemBuilder: (context, index) {
-                final msg = _messages[index];
-                final isAi = msg['sender'] == 'ai';
-
-                return Align(
-                  alignment: isAi ? Alignment.centerLeft : Alignment.centerRight,
-                  child: Container(
-                    margin: const EdgeInsets.only(bottom: 12),
-                    padding: const EdgeInsets.all(14),
-                    constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
-                    decoration: BoxDecoration(
-                      color: isAi ? Colors.white : culinaeBrown,
-                      borderRadius: BorderRadius.only(
-                        topLeft: const Radius.circular(16),
-                        topRight: const Radius.circular(16),
-                        bottomLeft: isAi ? const Radius.circular(4) : const Radius.circular(16),
-                        bottomRight: isAi ? const Radius.circular(16) : const Radius.circular(4),
-                      ),
-                      boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, 2))],
-                    ),
-                    child: Text(
-                      msg['text'],
-                      style: TextStyle(color: isAi ? Colors.black87 : Colors.white, fontSize: 15),
-                    ),
-                  ),
-                );
-              },
-            ),
+      // --- 🎨 THE NEW BACKGROUND WRAPPER ---
+      body: Container(
+        decoration: const BoxDecoration(
+          image: DecorationImage(
+            image: AssetImage('assets/images/wallpaper.png'),
+            fit: BoxFit.cover,
+            opacity: 0.15, // Change this from 0.1 to 1.0 to make it darker or lighter!
           ),
+        ),
+        child: Column(
+          children: [
+            Expanded(
+              child: ListView.builder(
+                controller: _scrollController,
+                padding: const EdgeInsets.all(16),
+                itemCount: _messages.length,
+                itemBuilder: (context, index) {
+                  final msg = _messages[index];
+                  final isAi = msg['sender'] == 'ai';
 
-          if (_isTyping)
-            const Padding(
-              padding: EdgeInsets.only(left: 24, bottom: 8),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text('AI Chef is scanning the network...', style: TextStyle(color: Colors.grey, fontStyle: FontStyle.italic)),
-              ),
-            ),
-
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: const BoxDecoration(color: Colors.white, boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, -2))]),
-            child: SafeArea(
-              child: Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _messageController,
-                      decoration: InputDecoration(
-                        hintText: 'Ask anything...',
-                        filled: true,
-                        fillColor: culinaeCream,
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(24), borderSide: BorderSide.none),
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                  return Align(
+                    alignment: isAi ? Alignment.centerLeft : Alignment.centerRight,
+                    child: Container(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.all(14),
+                      constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
+                      decoration: BoxDecoration(
+                        color: isAi ? Colors.white : culinaeBrown,
+                        borderRadius: BorderRadius.only(
+                          topLeft: const Radius.circular(16),
+                          topRight: const Radius.circular(16),
+                          bottomLeft: isAi ? const Radius.circular(4) : const Radius.circular(16),
+                          bottomRight: isAi ? const Radius.circular(16) : const Radius.circular(4),
+                        ),
+                        boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, 2))],
                       ),
-                      onSubmitted: (_) => _sendMessage(),
+                      child: Text(
+                        msg['text'],
+                        style: TextStyle(color: isAi ? Colors.black87 : Colors.white, fontSize: 15),
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  Container(
-                    decoration: const BoxDecoration(color: culinaeBrown, shape: BoxShape.circle),
-                    child: IconButton(
-                      icon: const Icon(Icons.send, color: Colors.white),
-                      onPressed: _sendMessage,
-                    ),
-                  )
-                ],
+                  );
+                },
               ),
             ),
-          )
-        ],
+
+            if (_isTyping)
+              const Padding(
+                padding: EdgeInsets.only(left: 24, bottom: 8),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text('AI Chef is scanning the network...', style: TextStyle(color: Colors.grey, fontStyle: FontStyle.italic, fontWeight: FontWeight.bold)),
+                ),
+              ),
+
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: const BoxDecoration(color: Colors.white, boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, -2))]),
+              child: SafeArea(
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _messageController,
+                        decoration: InputDecoration(
+                          hintText: 'Ask anything...',
+                          filled: true,
+                          fillColor: culinaeCream,
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(24), borderSide: BorderSide.none),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                        ),
+                        onSubmitted: (_) => _sendMessage(),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      decoration: const BoxDecoration(color: culinaeBrown, shape: BoxShape.circle),
+                      child: IconButton(
+                        icon: const Icon(Icons.send, color: Colors.white),
+                        onPressed: _sendMessage,
+                      ),
+                    )
+                  ],
+                ),
+              ),
+            )
+          ],
+        ),
       ),
     );
   }
