@@ -118,7 +118,7 @@ class _OwnerProfileTabState extends State<OwnerProfileTab> {
     }
   }
 
-  // --- NEW: The Send Report Logic ---
+  // --- The Send Report Logic ---
   Future<void> _showReportDialog() async {
     final TextEditingController reportController = TextEditingController();
     int wordCount = 0;
@@ -175,10 +175,10 @@ class _OwnerProfileTabState extends State<OwnerProfileTab> {
                         if (uid != null) {
                           try {
                             await FirebaseFirestore.instance.collection('reports').add({
-                              'reportedBy': storeName, // Identifies as the Store Owner
+                              'reportedBy': storeName,
                               'userId': uid,
                               'reason': reportController.text.trim(),
-                              'type': 'Store Owner Feedback', // Categorized for the Admin
+                              'type': 'Store Owner Feedback',
                               'status': 'pending',
                               'timestamp': FieldValue.serverTimestamp(),
                             });
@@ -217,7 +217,6 @@ class _OwnerProfileTabState extends State<OwnerProfileTab> {
         if (mounted) Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(MaterialPageRoute(builder: (context) => const AuthWrapper()), (route) => false);
       }
     } else if (value == 'report') {
-      // Trigger the Report pop-up!
       _showReportDialog();
     } else if (value == 'delete') {
       bool confirm = await _showConfirmationDialog('Delete Account?', 'WARNING: This action cannot be undone.', 'Delete Forever', Colors.red);
@@ -249,6 +248,59 @@ class _OwnerProfileTabState extends State<OwnerProfileTab> {
         ],
       ),
     ) ?? false;
+  }
+
+  // --- NEW: Delete Post Logic ---
+  Future<void> _deletePost(DocumentSnapshot postDoc) async {
+    final data = postDoc.data() as Map<String, dynamic>;
+    final List<dynamic> imageUrls = data['imageUrls'] ?? [];
+
+    // 1. Show confirmation warning
+    bool confirm = await _showConfirmationDialog(
+        'Delete Post?',
+        'Are you sure you want to delete this post? This will permanently remove it from your profile and the main feed.',
+        'Delete',
+        Colors.red
+    );
+
+    if (confirm) {
+      try {
+        // 2. Delete the actual image files from Firebase Storage to save space
+        for (String url in imageUrls) {
+          try {
+            final storageRef = FirebaseStorage.instance.refFromURL(url);
+            await storageRef.delete();
+          } catch (e) {
+            debugPrint("Could not delete image from storage: $e");
+            // We continue even if storage fails, so the DB doc still gets deleted
+          }
+        }
+
+        // 3. Delete the post document from Firestore
+        await FirebaseFirestore.instance.collection('posts').doc(postDoc.id).delete();
+
+        if (mounted) {
+          // Close the post view screen
+          Navigator.pop(context);
+
+          // Refresh the grid
+          _fetchPosts();
+
+          ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Post deleted successfully'),
+                backgroundColor: Colors.black87,
+                duration: Duration(seconds: 2),
+              )
+          );
+        }
+      } catch (e) {
+        debugPrint('Error deleting post: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to delete post. Try again.')));
+        }
+      }
+    }
   }
 
   void _openEditProfile() async {
@@ -288,10 +340,7 @@ class _OwnerProfileTabState extends State<OwnerProfileTab> {
             onSelected: _handleMenuSelection,
             itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
               const PopupMenuItem<String>(value: 'logout', child: Row(children: [Icon(Icons.logout, color: culinaeBrown), SizedBox(width: 8), Text('Logout')])),
-
-              // NEW: Send Report Option!
               const PopupMenuItem<String>(value: 'report', child: Row(children: [Icon(Icons.flag_outlined, color: Colors.orange), SizedBox(width: 8), Text('Send Report')])),
-
               const PopupMenuItem<String>(value: 'delete', child: Row(children: [Icon(Icons.delete_forever, color: Colors.red), SizedBox(width: 8), Text('Delete Account', style: TextStyle(color: Colors.red))])),
             ],
           ),
@@ -429,7 +478,6 @@ class _OwnerProfileTabState extends State<OwnerProfileTab> {
 
                 return GestureDetector(
                   onTap: () {
-                    // Slide up a new screen containing the fully interactive PostCard!
                     Navigator.push(
                       context,
                       MaterialPageRoute(
@@ -440,6 +488,30 @@ class _OwnerProfileTabState extends State<OwnerProfileTab> {
                             elevation: 0,
                             leading: const BackButton(color: Color(0xFF4A1F1F)),
                             title: const Text('Your Post', style: TextStyle(color: Color(0xFF4A1F1F), fontWeight: FontWeight.bold)),
+
+                            // NEW: The Three-Dot Delete Menu!
+                            actions: [
+                              PopupMenuButton<String>(
+                                icon: const Icon(Icons.more_vert, color: Color(0xFF4A1F1F)),
+                                onSelected: (value) {
+                                  if (value == 'delete') {
+                                    _deletePost(postDoc);
+                                  }
+                                },
+                                itemBuilder: (context) => [
+                                  const PopupMenuItem(
+                                    value: 'delete',
+                                    child: Row(
+                                      children: [
+                                        Icon(Icons.delete_outline, color: Colors.red),
+                                        SizedBox(width: 8),
+                                        Text('Delete Post', style: TextStyle(color: Colors.red)),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
                           ),
                           body: SingleChildScrollView(
                             child: Padding(

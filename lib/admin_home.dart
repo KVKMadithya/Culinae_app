@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 
 import 'main.dart'; // To route back to AuthWrapper on logout
 
@@ -22,6 +23,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
     const AdminDashboardTab(),
     const AdminUsersManagerTab(),
     const AdminStaffTab(),
+    const AdminPostsManagerTab(),
     const AdminReportsTab(),
   ];
 
@@ -53,7 +55,6 @@ class _AdminHomePageState extends State<AdminHomePage> {
     }
   }
 
-  // --- Handle Menu Selection ---
   void _handleMenuSelection(String value) {
     if (value == 'logout') {
       _logout();
@@ -69,7 +70,6 @@ class _AdminHomePageState extends State<AdminHomePage> {
         title: const Text('Culinae Admin HQ', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         centerTitle: true,
         actions: [
-          // --- UPDATED: The Three-Dots Menu! ---
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert, color: Colors.white),
             onSelected: _handleMenuSelection,
@@ -103,6 +103,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
           BottomNavigationBarItem(icon: Icon(Icons.dashboard), label: 'Overview'),
           BottomNavigationBarItem(icon: Icon(Icons.people_alt), label: 'Users'),
           BottomNavigationBarItem(icon: Icon(Icons.admin_panel_settings), label: 'Admins'),
+          BottomNavigationBarItem(icon: Icon(Icons.photo_library), label: 'Posts'),
           BottomNavigationBarItem(icon: Icon(Icons.flag), label: 'Reports'),
         ],
       ),
@@ -111,7 +112,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
 }
 
 // ============================================================================
-// TAB 1: OVERVIEW DASHBOARD (Quick Stats)
+// TAB 1: OVERVIEW DASHBOARD
 // ============================================================================
 class AdminDashboardTab extends StatelessWidget {
   const AdminDashboardTab({super.key});
@@ -127,7 +128,9 @@ class AdminDashboardTab extends StatelessWidget {
 
         if (userSnapshot.hasData) {
           for (var doc in userSnapshot.data!.docs) {
-            final role = (doc.data() as Map<String, dynamic>)['role'];
+            // SAFE DATA EXTRACTION
+            final data = Map<String, dynamic>.from(doc.data() as Map<String, dynamic>? ?? {});
+            final role = data['role'];
             if (role == 'customer') customerCount++;
             if (role == 'owner') ownerCount++;
           }
@@ -244,7 +247,9 @@ class _UserList extends StatelessWidget {
           padding: const EdgeInsets.all(12),
           itemCount: users.length,
           itemBuilder: (context, index) {
-            final data = users[index].data() as Map<String, dynamic>;
+            // SAFE DATA EXTRACTION (This prevents the red screen crash!)
+            final data = Map<String, dynamic>.from(users[index].data() as Map<String, dynamic>? ?? {});
+
             final name = roleFilter == 'owner' ? (data['storeName'] ?? 'Unnamed Store') : (data['name'] ?? data['username'] ?? 'Unnamed User');
             final email = data['email'] ?? 'No email';
             final isBanned = data['isBanned'] == true;
@@ -286,7 +291,8 @@ class _EditUserModalState extends State<_EditUserModal> {
   @override
   void initState() {
     super.initState();
-    final data = widget.userDoc.data() as Map<String, dynamic>;
+    // SAFE DATA EXTRACTION
+    final data = Map<String, dynamic>.from(widget.userDoc.data() as Map<String, dynamic>? ?? {});
     final role = data['role'] ?? 'customer';
 
     final initialName = role == 'owner' ? (data['storeName'] ?? '') : (data['name'] ?? data['username'] ?? '');
@@ -298,7 +304,7 @@ class _EditUserModalState extends State<_EditUserModal> {
 
   Future<void> _saveChanges() async {
     setState(() => _isSaving = true);
-    final data = widget.userDoc.data() as Map<String, dynamic>;
+    final data = Map<String, dynamic>.from(widget.userDoc.data() as Map<String, dynamic>? ?? {});
     final role = data['role'] ?? 'customer';
 
     Map<String, dynamic> updates = {
@@ -372,7 +378,7 @@ class _EditUserModalState extends State<_EditUserModal> {
 }
 
 // ============================================================================
-// TAB 3: NEW! ADMIN TEAM MANAGEMENT (Search & Promote)
+// TAB 3: ADMIN TEAM MANAGEMENT
 // ============================================================================
 class AdminStaffTab extends StatefulWidget {
   const AdminStaffTab({super.key});
@@ -396,7 +402,6 @@ class _AdminStaffTabState extends State<AdminStaffTab> {
 
     return Column(
       children: [
-        // 1. The Search Bar
         Container(
           color: Colors.white,
           padding: const EdgeInsets.all(16),
@@ -423,7 +428,6 @@ class _AdminStaffTabState extends State<AdminStaffTab> {
           ),
         ),
 
-        // 2. The Dynamic List
         Expanded(
           child: StreamBuilder<QuerySnapshot>(
             stream: FirebaseFirestore.instance.collection('users').snapshots(),
@@ -432,9 +436,11 @@ class _AdminStaffTabState extends State<AdminStaffTab> {
 
               final allUsers = snapshot.data!.docs;
 
-              // If NOT searching, show current Admins
               if (_searchQuery.isEmpty) {
-                final currentAdmins = allUsers.where((doc) => (doc.data() as Map<String, dynamic>)['role'] == 'admin').toList();
+                final currentAdmins = allUsers.where((doc) {
+                  final data = Map<String, dynamic>.from(doc.data() as Map<String, dynamic>? ?? {});
+                  return data['role'] == 'admin';
+                }).toList();
 
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -447,15 +453,15 @@ class _AdminStaffTabState extends State<AdminStaffTab> {
                       child: ListView.builder(
                         itemCount: currentAdmins.length,
                         itemBuilder: (context, index) {
-                          final data = currentAdmins[index].data() as Map<String, dynamic>;
+                          // SAFE DATA EXTRACTION
+                          final data = Map<String, dynamic>.from(currentAdmins[index].data() as Map<String, dynamic>? ?? {});
                           final docId = currentAdmins[index].id;
                           final name = data['name'] ?? 'Admin';
 
                           return ListTile(
                             leading: const CircleAvatar(backgroundColor: Colors.purple, child: Icon(Icons.admin_panel_settings, color: Colors.white)),
                             title: Text(name, style: const TextStyle(fontWeight: FontWeight.bold)),
-                            subtitle: Text(data['email'] ?? ''),
-                            // Prevent the admin from accidentally demoting themselves
+                            subtitle: Text(data['email'] ?? 'No email'),
                             trailing: docId == myUid
                                 ? const Text('YOU', style: TextStyle(color: Colors.purple, fontWeight: FontWeight.bold))
                                 : TextButton(
@@ -470,14 +476,14 @@ class _AdminStaffTabState extends State<AdminStaffTab> {
                 );
               }
 
-              // If SEARCHING, show matching regular users to promote
               final searchResults = allUsers.where((doc) {
-                final data = doc.data() as Map<String, dynamic>;
+                // SAFE DATA EXTRACTION
+                final data = Map<String, dynamic>.from(doc.data() as Map<String, dynamic>? ?? {});
+
                 final name = (data['name'] ?? data['storeName'] ?? data['username'] ?? '').toString().toLowerCase();
                 final email = (data['email'] ?? '').toString().toLowerCase();
                 final role = data['role'] ?? 'customer';
 
-                // Only show non-admins that match the search
                 return role != 'admin' && (name.contains(_searchQuery) || email.contains(_searchQuery));
               }).toList();
 
@@ -488,14 +494,14 @@ class _AdminStaffTabState extends State<AdminStaffTab> {
               return ListView.builder(
                 itemCount: searchResults.length,
                 itemBuilder: (context, index) {
-                  final data = searchResults[index].data() as Map<String, dynamic>;
+                  final data = Map<String, dynamic>.from(searchResults[index].data() as Map<String, dynamic>? ?? {});
                   final docId = searchResults[index].id;
                   final name = data['name'] ?? data['storeName'] ?? 'User';
 
                   return ListTile(
                     leading: const CircleAvatar(backgroundColor: Colors.grey, child: Icon(Icons.person, color: Colors.white)),
                     title: Text(name, style: const TextStyle(fontWeight: FontWeight.bold)),
-                    subtitle: Text(data['email'] ?? ''),
+                    subtitle: Text(data['email'] ?? 'No email'),
                     trailing: ElevatedButton(
                       style: ElevatedButton.styleFrom(backgroundColor: Colors.purple),
                       onPressed: () => _updateUserRole(docId, 'admin'),
@@ -513,7 +519,126 @@ class _AdminStaffTabState extends State<AdminStaffTab> {
 }
 
 // ============================================================================
-// TAB 4: REPORT HANDLING
+// TAB 4: CONTENT MODERATION (Posts)
+// ============================================================================
+class AdminPostsManagerTab extends StatelessWidget {
+  const AdminPostsManagerTab({super.key});
+  static const Color culinaeBrown = Color(0xFF4A1F1F);
+
+  Future<void> _deletePost(BuildContext context, DocumentSnapshot postDoc) async {
+    bool confirm = await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Post?', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+        content: const Text('Are you sure you want to permanently delete this post? This will wipe it from the main feed and delete its images.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete Forever', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    ) ?? false;
+
+    if (confirm) {
+      try {
+        final data = Map<String, dynamic>.from(postDoc.data() as Map<String, dynamic>? ?? {});
+        final List<dynamic> imageUrls = data['imageUrls'] ?? [];
+
+        for (String url in imageUrls) {
+          try {
+            final storageRef = FirebaseStorage.instance.refFromURL(url);
+            await storageRef.delete();
+          } catch (e) {
+            debugPrint("Could not delete image from storage: $e");
+          }
+        }
+
+        await FirebaseFirestore.instance.collection('posts').doc(postDoc.id).delete();
+
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Post successfully deleted from platform.'), backgroundColor: Colors.black87),
+          );
+        }
+      } catch (e) {
+        debugPrint('Error deleting post: $e');
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to delete post. Try again.')));
+        }
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance.collection('posts').orderBy('timestamp', descending: true).snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator(color: culinaeBrown));
+        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) return const Center(child: Text('No posts on the platform yet.'));
+
+        final posts = snapshot.data!.docs;
+
+        return ListView.builder(
+          padding: const EdgeInsets.all(12),
+          itemCount: posts.length,
+          itemBuilder: (context, index) {
+            final postDoc = posts[index];
+            // SAFE DATA EXTRACTION
+            final data = Map<String, dynamic>.from(postDoc.data() as Map<String, dynamic>? ?? {});
+
+            final storeName = data['storeName'] ?? 'Unknown Store';
+            final caption = data['caption'] ?? 'No caption';
+            final List<dynamic> urls = data['imageUrls'] ?? [];
+            final String mainImage = urls.isNotEmpty ? urls[0] : '';
+
+            return Card(
+              elevation: 2,
+              margin: const EdgeInsets.only(bottom: 12),
+              clipBehavior: Clip.antiAlias,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 100,
+                    height: 100,
+                    color: Colors.grey.shade200,
+                    child: mainImage.isNotEmpty
+                        ? CachedNetworkImage(imageUrl: mainImage, fit: BoxFit.cover)
+                        : const Icon(Icons.image, color: Colors.grey),
+                  ),
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.all(12.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(storeName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                          const SizedBox(height: 4),
+                          Text(caption, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.black87, fontSize: 13)),
+                        ],
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.delete_outline, color: Colors.red),
+                    onPressed: () => _deletePost(context, postDoc),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+// ============================================================================
+// TAB 5: REPORT HANDLING
 // ============================================================================
 class AdminReportsTab extends StatelessWidget {
   const AdminReportsTab({super.key});
@@ -526,7 +651,6 @@ class AdminReportsTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot>(
-      // Only show pending reports that need attention!
       stream: FirebaseFirestore.instance.collection('reports').where('status', isEqualTo: 'pending').snapshots(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator(color: culinaeBrown));
@@ -540,7 +664,9 @@ class AdminReportsTab extends StatelessWidget {
           padding: const EdgeInsets.all(12),
           itemCount: reports.length,
           itemBuilder: (context, index) {
-            final data = reports[index].data() as Map<String, dynamic>;
+            // SAFE DATA EXTRACTION
+            final data = Map<String, dynamic>.from(reports[index].data() as Map<String, dynamic>? ?? {});
+
             final reason = data['reason'] ?? 'No reason provided';
             final reportedBy = data['reportedBy'] ?? 'Unknown User';
             final type = data['type'] ?? 'General';

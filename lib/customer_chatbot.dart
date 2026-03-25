@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'public_store_profile.dart'; // Needed for the buttons!
 
 class CustomerChatbotTab extends StatefulWidget {
   const CustomerChatbotTab({super.key});
@@ -41,30 +42,31 @@ class _CustomerChatbotTabState extends State<CustomerChatbotTab> {
     await _analyzeWithGeminiAndSearch(text);
   }
 
-  // --- 🤖 THE INTENT-DRIVEN AI ENGINE ---
+  // --- 🤖 THE INTENT-DRIVEN AI ENGINE (UPGRADED) ---
   Future<void> _analyzeWithGeminiAndSearch(String userQuery) async {
     final String apiKey = dotenv.env['GEMINI_API_KEY'] ?? '';
     final model = GenerativeModel(model: 'gemini-2.5-flash', apiKey: apiKey);
 
-    // NEW: We are teaching the AI to categorize the user's intent!
+    // NEW: We use '|||' so the AI can safely write multi-line recipes!
     final prompt = '''
       You are an AI Assistant for a food delivery app.
       The user says: "$userQuery"
       
-      Categorize the request into one of three types:
-      1. RECIPE (The user wants to cook something)
-      2. ITEM_SEARCH (The user is looking to buy a specific ready-made food, e.g., "ice cream", "pizza")
-      3. STORE_LOCATION (The user is asking where a specific store is located)
-      4. OTHER (Not related to food or stores)
+      Categorize the request and extract information. 
+      Return your response EXACTLY in this format, using "|||" to separate the three sections. 
       
-      Return EXACTLY three lines. Do not use markdown.
-      Line 1: A friendly, short sentence acknowledging the request.
-      Line 2: The category (RECIPE, ITEM_SEARCH, STORE_LOCATION, or OTHER).
-      Line 3: 
-      - If RECIPE: Comma-separated list of raw ingredients needed.
-      - If ITEM_SEARCH: Comma-separated list of the main food keywords.
-      - If STORE_LOCATION: The exact name of the store they are asking about.
-      - If OTHER: none
+      [SECTION 1]
+      If it is a RECIPE, provide the complete recipe here including a list of ingredients and step-by-step instructions. 
+      If it is an ITEM_SEARCH or STORE_LOCATION, provide a friendly, helpful conversational response.
+      |||
+      [SECTION 2]
+      Must be exactly one of: RECIPE, ITEM_SEARCH, STORE_LOCATION, OTHER
+      |||
+      [SECTION 3]
+      If RECIPE: Comma-separated list of raw ingredients.
+      If ITEM_SEARCH: Comma-separated list of food items.
+      If STORE_LOCATION: The exact name of the store.
+      If OTHER: none
     ''';
 
     String aiChatResponse = "";
@@ -76,14 +78,15 @@ class _CustomerChatbotTabState extends State<CustomerChatbotTab> {
       final response = await model.generateContent(content);
       final rawText = response.text?.trim() ?? "";
 
-      final lines = rawText.split('\n').where((line) => line.trim().isNotEmpty).toList();
+      final parts = rawText.split('|||');
 
-      if (lines.length >= 2) {
-        aiChatResponse = lines[0];
-        intent = lines[1].trim().toUpperCase();
+      if (parts.length >= 3) {
+        aiChatResponse = parts[0].replaceAll('[SECTION 1]', '').trim();
+        intent = parts[1].replaceAll('[SECTION 2]', '').trim().toUpperCase();
+        String rawKeywords = parts[2].replaceAll('[SECTION 3]', '').trim();
 
-        if (lines.length >= 3 && lines[2].toLowerCase() != 'none') {
-          keywords = lines[2].split(',').map((e) => e.trim().toLowerCase()).toList();
+        if (rawKeywords.toLowerCase() != 'none') {
+          keywords = rawKeywords.split(',').map((e) => e.trim().toLowerCase()).toList();
         }
       }
     } catch (e) {
@@ -92,9 +95,11 @@ class _CustomerChatbotTabState extends State<CustomerChatbotTab> {
       return;
     }
 
-    // Immediately show the AI's conversational response
-    setState(() => _messages.add({'sender': 'ai', 'text': aiChatResponse}));
-    _scrollToBottom();
+    // 1️⃣ IMMEDIATELY show the AI's response (This guarantees the user ALWAYS gets the recipe!)
+    if (aiChatResponse.isNotEmpty) {
+      setState(() => _messages.add({'sender': 'ai', 'text': aiChatResponse}));
+      _scrollToBottom();
+    }
 
     if (intent == 'OTHER' || keywords.isEmpty) {
       setState(() => _isTyping = false);
@@ -123,13 +128,9 @@ class _CustomerChatbotTabState extends State<CustomerChatbotTab> {
     // ==========================================================
     // 🧠 DYNAMIC FIREBASE SEARCHING BASED ON INTENT
     // ==========================================================
-
     try {
-      // --------------------------------------------------------
-      // INTENT: STORE LOCATION (Find a specific store by name)
-      // --------------------------------------------------------
       if (intent == 'STORE_LOCATION') {
-        final storeNameToFind = keywords.first; // e.g., "burger king"
+        final storeNameToFind = keywords.first;
         final userSnapshot = await FirebaseFirestore.instance.collection('users').where('role', isEqualTo: 'owner').get();
 
         bool storeFound = false;
@@ -146,7 +147,11 @@ class _CustomerChatbotTabState extends State<CustomerChatbotTab> {
                 storeGeo.latitude, storeGeo.longitude,
               ) / 1000;
 
-              _addAiMessage("📍 **${data['storeName']}** is located ${distanceInKm.toStringAsFixed(1)} km away from you!");
+              // Pass the store data so we can generate a button!
+              _addAiMessage(
+                  "📍 **${data['storeName']}** is located ${distanceInKm.toStringAsFixed(1)} km away from you!",
+                  stores: [{'ownerId': doc.id, 'storeName': data['storeName']}]
+              );
               storeFound = true;
             }
           }
@@ -156,10 +161,6 @@ class _CustomerChatbotTabState extends State<CustomerChatbotTab> {
           _addAiMessage("I couldn't find a store named '${keywords.first}' on the map. 😔");
         }
       }
-
-      // --------------------------------------------------------
-      // INTENT: RECIPE or ITEM SEARCH (Scan Posts for Food)
-      // --------------------------------------------------------
       else if (intent == 'RECIPE' || intent == 'ITEM_SEARCH') {
         final postsSnapshot = await FirebaseFirestore.instance.collection('posts').get();
 
@@ -201,6 +202,7 @@ class _CustomerChatbotTabState extends State<CustomerChatbotTab> {
                 storeGeo.latitude, storeGeo.longitude,
               );
               recommendedStores.add({
+                'ownerId': ownerId, // NEW: We need the ID for the button link
                 'storeName': storeNames[ownerId],
                 'storeType': storeType,
                 'distance': distanceInMeters / 1000,
@@ -211,17 +213,35 @@ class _CustomerChatbotTabState extends State<CustomerChatbotTab> {
         }
 
         if (recommendedStores.isEmpty) {
-          _addAiMessage("I couldn't find any nearby stores mentioning those items right now. 😔");
+          if (intent != 'RECIPE') {
+            _addAiMessage("I couldn't find any nearby stores mentioning those items right now. 😔");
+          } else {
+            // For recipes, we already gave the recipe. Just stop typing.
+            setState(() => _isTyping = false);
+          }
         } else {
           recommendedStores.sort((a, b) => (a['distance'] as double).compareTo(b['distance'] as double));
 
-          String finalMessage = "Here are the best nearby options:\n\n";
+          String finalMessage = intent == 'RECIPE'
+              ? "Good news! I found some nearby stores that have the ingredients you need:\n\n"
+              : "Here are the best nearby options:\n\n";
+
+          List<Map<String, dynamic>> storesForButtons = [];
+
           for (var store in recommendedStores) {
             finalMessage += "🏪 **${store['storeName']}** (${store['storeType']}) - ${store['distance'].toStringAsFixed(1)} km away\n";
             final List<String> displayIngredients = (store['found'] as List<String>).map((e) => e[0].toUpperCase() + e.substring(1)).toList();
             finalMessage += "Has: ${displayIngredients.join(', ')}\n\n";
+
+            // Add to the button list
+            storesForButtons.add({
+              'ownerId': store['ownerId'],
+              'storeName': store['storeName']
+            });
           }
-          _addAiMessage(finalMessage);
+
+          // Send the follow-up message with the interactive buttons attached!
+          _addAiMessage(finalMessage, stores: storesForButtons);
         }
       }
     } catch (e) {
@@ -230,9 +250,14 @@ class _CustomerChatbotTabState extends State<CustomerChatbotTab> {
     }
   }
 
-  void _addAiMessage(String text) {
+  // NEW: Added an optional 'stores' parameter to pass button data!
+  void _addAiMessage(String text, {List<Map<String, dynamic>>? stores}) {
     setState(() {
-      _messages.add({'sender': 'ai', 'text': text});
+      _messages.add({
+        'sender': 'ai',
+        'text': text,
+        'stores': stores // Attach the stores to the message
+      });
       _isTyping = false;
     });
     _scrollToBottom();
@@ -267,13 +292,12 @@ class _CustomerChatbotTabState extends State<CustomerChatbotTab> {
         ),
         centerTitle: true,
       ),
-      // --- 🎨 THE NEW BACKGROUND WRAPPER ---
       body: Container(
         decoration: const BoxDecoration(
           image: DecorationImage(
             image: AssetImage('assets/images/wallpaper.png'),
             fit: BoxFit.cover,
-            opacity: 0.15, // Change this from 0.1 to 1.0 to make it darker or lighter!
+            opacity: 0.15,
           ),
         ),
         child: Column(
@@ -287,12 +311,15 @@ class _CustomerChatbotTabState extends State<CustomerChatbotTab> {
                   final msg = _messages[index];
                   final isAi = msg['sender'] == 'ai';
 
+                  // Safely extract the stores list if it exists
+                  final List<dynamic> attachedStores = msg['stores'] ?? [];
+
                   return Align(
                     alignment: isAi ? Alignment.centerLeft : Alignment.centerRight,
                     child: Container(
                       margin: const EdgeInsets.only(bottom: 12),
                       padding: const EdgeInsets.all(14),
-                      constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
+                      constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.85),
                       decoration: BoxDecoration(
                         color: isAi ? Colors.white : culinaeBrown,
                         borderRadius: BorderRadius.only(
@@ -303,9 +330,44 @@ class _CustomerChatbotTabState extends State<CustomerChatbotTab> {
                         ),
                         boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, 2))],
                       ),
-                      child: Text(
-                        msg['text'],
-                        style: TextStyle(color: isAi ? Colors.black87 : Colors.white, fontSize: 15),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            msg['text'],
+                            style: TextStyle(color: isAi ? Colors.black87 : Colors.white, fontSize: 15),
+                          ),
+
+                          // 🔘 DYNAMIC BUTTON GENERATION
+                          if (isAi && attachedStores.isNotEmpty) ...[
+                            const SizedBox(height: 12),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: attachedStores.map((store) {
+                                return ElevatedButton.icon(
+                                  onPressed: () {
+                                    Navigator.push(context, MaterialPageRoute(
+                                        builder: (_) => PublicStoreProfilePage(
+                                            ownerId: store['ownerId'],
+                                            storeName: store['storeName']
+                                        )
+                                    ));
+                                  },
+                                  icon: const Icon(Icons.storefront, size: 16),
+                                  label: Text("Visit ${store['storeName']}"),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: culinaeCream,
+                                    foregroundColor: culinaeBrown,
+                                    elevation: 0,
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                                  ),
+                                );
+                              }).toList(),
+                            )
+                          ]
+                        ],
                       ),
                     ),
                   );
@@ -318,7 +380,7 @@ class _CustomerChatbotTabState extends State<CustomerChatbotTab> {
                 padding: EdgeInsets.only(left: 24, bottom: 8),
                 child: Align(
                   alignment: Alignment.centerLeft,
-                  child: Text('AI Chef is scanning the network...', style: TextStyle(color: Colors.grey, fontStyle: FontStyle.italic, fontWeight: FontWeight.bold)),
+                  child: Text('AI Chef is thinking...', style: TextStyle(color: Colors.grey, fontStyle: FontStyle.italic, fontWeight: FontWeight.bold)),
                 ),
               ),
 
